@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_studio_presets: {
+        Row: {
+          created_at: string | null
+          id: string
+          preset_name: string
+          system_prompt: string
+          target_market: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          preset_name: string
+          system_prompt: string
+          target_market: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          preset_name?: string
+          system_prompt?: string
+          target_market?: string
+        }
+        Relationships: []
+      }
       shipment_documents: {
         Row: {
           created_at: string
