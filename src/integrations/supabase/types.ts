@@ -14,6 +14,59 @@ export type Database = {
   }
   public: {
     Tables: {
+      shipment_documents: {
+        Row: {
+          created_at: string
+          document_label: string
+          document_type: string
+          file_path: string | null
+          generated_at: string | null
+          id: string
+          metadata: Json | null
+          shipment_id: string | null
+          status: Database["public"]["Enums"]["document_status"]
+          target_market: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          document_label: string
+          document_type: string
+          file_path?: string | null
+          generated_at?: string | null
+          id?: string
+          metadata?: Json | null
+          shipment_id?: string | null
+          status?: Database["public"]["Enums"]["document_status"]
+          target_market?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          document_label?: string
+          document_type?: string
+          file_path?: string | null
+          generated_at?: string | null
+          id?: string
+          metadata?: Json | null
+          shipment_id?: string | null
+          status?: Database["public"]["Enums"]["document_status"]
+          target_market?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_documents_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "shipments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shipments: {
         Row: {
           created_at: string
@@ -79,6 +132,7 @@ export type Database = {
       is_shipment_owner: { Args: { shipment_id: string }; Returns: boolean }
     }
     Enums: {
+      document_status: "Missing" | "Draft" | "Ready" | "Filed"
       shipment_status:
         | "Draft"
         | "Calculated"
@@ -212,6 +266,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      document_status: ["Missing", "Draft", "Ready", "Filed"],
       shipment_status: [
         "Draft",
         "Calculated",
