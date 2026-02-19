@@ -8,31 +8,17 @@ import {
   Anchor,
   ChevronLeft,
   ChevronRight,
+  FolderOpen,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  {
-    title: "Dashboard",
-    url: "/",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Landed Cost Engine",
-    url: "/landed-cost",
-    icon: Calculator,
-  },
-  {
-    title: "HS Neural-Navigator",
-    url: "/hs-navigator",
-    icon: Brain,
-  },
-  {
-    title: "Authenticity Studio",
-    url: "/authenticity-studio",
-    icon: ShieldCheck,
-  },
+  { title: "Dashboard",               url: "/",                        icon: LayoutDashboard },
+  { title: "HS Neural-Navigator",     url: "/hs-navigator",            icon: Brain },
+  { title: "Landed Cost Engine",      url: "/landed-cost",             icon: Calculator },
+  { title: "Documentation Workshop",  url: "/documentation-workshop",  icon: FolderOpen },
+  { title: "Authenticity Studio",     url: "/authenticity-studio",     icon: ShieldCheck },
 ];
 
 export function AppSidebar() {

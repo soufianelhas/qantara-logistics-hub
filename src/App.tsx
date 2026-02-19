@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import LandedCostEngine from "./pages/LandedCostEngine";
 import HSNeuralNavigator from "./pages/HSNeuralNavigator";
 import AuthenticityStudio from "./pages/AuthenticityStudio";
+import DocumentationWorkshop from "./pages/DocumentationWorkshop";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,7 @@ const App = () => (
           <Route path="/landed-cost" element={<LandedCostEngine />} />
           <Route path="/hs-navigator" element={<HSNeuralNavigator />} />
           <Route path="/authenticity-studio" element={<AuthenticityStudio />} />
+          <Route path="/documentation-workshop" element={<DocumentationWorkshop />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
