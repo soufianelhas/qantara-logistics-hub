@@ -14,16 +14,77 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      shipments: {
+        Row: {
+          created_at: string
+          duty: number
+          e_factor_multiplier: number
+          freight: number
+          hs_code_assigned: string | null
+          id: string
+          insurance: number
+          notes: string | null
+          port_congestion_level: string | null
+          product_name: string
+          raw_cost_v: number
+          status: Database["public"]["Enums"]["shipment_status"]
+          taxes: number
+          updated_at: string
+          user_id: string
+          weather_risk_level: string | null
+        }
+        Insert: {
+          created_at?: string
+          duty?: number
+          e_factor_multiplier?: number
+          freight?: number
+          hs_code_assigned?: string | null
+          id?: string
+          insurance?: number
+          notes?: string | null
+          port_congestion_level?: string | null
+          product_name: string
+          raw_cost_v?: number
+          status?: Database["public"]["Enums"]["shipment_status"]
+          taxes?: number
+          updated_at?: string
+          user_id: string
+          weather_risk_level?: string | null
+        }
+        Update: {
+          created_at?: string
+          duty?: number
+          e_factor_multiplier?: number
+          freight?: number
+          hs_code_assigned?: string | null
+          id?: string
+          insurance?: number
+          notes?: string | null
+          port_congestion_level?: string | null
+          product_name?: string
+          raw_cost_v?: number
+          status?: Database["public"]["Enums"]["shipment_status"]
+          taxes?: number
+          updated_at?: string
+          user_id?: string
+          weather_risk_level?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_shipment_owner: { Args: { shipment_id: string }; Returns: boolean }
     }
     Enums: {
-      [_ in never]: never
+      shipment_status:
+        | "Draft"
+        | "Calculated"
+        | "Filed"
+        | "Port-Transit"
+        | "Delivered"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +211,14 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      shipment_status: [
+        "Draft",
+        "Calculated",
+        "Filed",
+        "Port-Transit",
+        "Delivered",
+      ],
+    },
   },
 } as const
