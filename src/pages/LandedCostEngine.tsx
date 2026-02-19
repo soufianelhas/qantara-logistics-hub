@@ -267,8 +267,8 @@ export default function LandedCostEngine() {
     <AppLayout title="Landed Cost Engine" subtitle="V + F + I + D + T × E-Factor">
       <div className="max-w-5xl mx-auto space-y-6">
 
-        {/* ── Stepper (only shown in compound flow) ──────────────────────── */}
-        {fromClassifier && <WorkflowStepper currentStep={workflowStep} />}
+        {/* ── Workflow Stepper — always visible ──────────────────────── */}
+        <WorkflowStepper currentStep={workflowStep} />
 
         {/* ── Provenance banner (from HS Navigator) ──────────────────────── */}
         {fromClassifier && (

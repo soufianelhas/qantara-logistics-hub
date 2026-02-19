@@ -477,6 +477,7 @@ export default function DocumentationWorkshop() {
   const [savingDocId, setSavingDocId] = useState<string | null>(null);
 
   const previewRef = useRef<HTMLDivElement>(null);
+  const [filingShipment, setFilingShipment] = useState(false);
 
   // ── Fetch shipment from DB on load ────────────────────────────────────────
 
@@ -564,6 +565,43 @@ export default function DocumentationWorkshop() {
   const handleGeneratePDF = (doc: RequiredDocument) => {
     generateAndPrintDocument(doc.id, previewRef, doc.label);
     handleStatusChange(doc.id, "Ready");
+  };
+
+  // ── Finalize & Export: mark shipment as "Filed" ───────────────────────────
+
+  const handleFinalizeAndExport = async () => {
+    if (!shipmentId) {
+      toast({ title: "No shipment linked", description: "Please complete the full workflow (HS Navigator → LCE → here) to finalise.", variant: "destructive" });
+      return;
+    }
+    setFilingShipment(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { error } = await supabase
+        .from("shipments")
+        .update({ status: "Filed" })
+        .eq("id", shipmentId);
+
+      if (error) throw error;
+
+      // Mark all ready docs as Filed
+      const readyDocs = checklist.filter((d) => (statuses[d.id] ?? "Missing") === "Ready");
+      for (const doc of readyDocs) {
+        await handleStatusChange(doc.id, "Filed");
+      }
+
+      toast({
+        title: "✓ Shipment Filed",
+        description: "Shipment status updated to 'Filed'. All ready documents have been filed with PortNet.",
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to file shipment";
+      toast({ title: "Filing failed", description: msg, variant: "destructive" });
+    } finally {
+      setFilingShipment(false);
+    }
   };
 
   const handleAutoFill = (details: Partial<ExporterDetails>) => {
@@ -936,6 +974,36 @@ export default function DocumentationWorkshop() {
             </div>
           </div>
         )}
+
+        {/* ── Finalize & Export ─────────────────────────────────────── */}
+        {checklist.length > 0 && (
+          <div className="rounded-xl border-2 border-success/40 bg-success/6 px-5 py-4 flex items-center gap-4 animate-fade-in">
+            <div className="w-10 h-10 rounded-full bg-success/15 border border-success/30 flex items-center justify-center shrink-0">
+              <Send className="w-5 h-5 text-success" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-foreground">Finalize & Export Shipment</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Marks the shipment as <strong className="text-foreground">Filed</strong> in the system and files all Ready documents with PortNet.
+                {!shipmentId && (
+                  <span className="text-warning font-medium ml-1">⚠ Link a shipment_id by completing the full workflow first.</span>
+                )}
+              </p>
+            </div>
+            <Button
+              onClick={handleFinalizeAndExport}
+              disabled={filingShipment || !shipmentId}
+              className="shrink-0 bg-success text-white hover:bg-success/90 h-10 text-sm font-semibold gap-2 shadow-md"
+            >
+              {filingShipment ? (
+                <><RefreshCw className="w-4 h-4 animate-spin" /> Filing…</>
+              ) : (
+                <><Send className="w-4 h-4" /> Finalize & Export</>
+              )}
+            </Button>
+          </div>
+        )}
+
       </div>
     </AppLayout>
   );

@@ -13,12 +13,15 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { title: "Dashboard",               url: "/",                        icon: LayoutDashboard },
-  { title: "HS Neural-Navigator",     url: "/hs-navigator",            icon: Brain },
-  { title: "Landed Cost Engine",      url: "/landed-cost",             icon: Calculator },
-  { title: "Documentation Workshop",  url: "/documentation-workshop",  icon: FolderOpen },
-  { title: "Authenticity Studio",     url: "/authenticity-studio",     icon: ShieldCheck },
+const workflowItems = [
+  { title: "HS Neural-Navigator",     url: "/hs-navigator",            icon: Brain,       step: 1 },
+  { title: "Landed Cost Engine",      url: "/landed-cost",             icon: Calculator,  step: 2 },
+  { title: "Documentation Workshop",  url: "/documentation-workshop",  icon: FolderOpen,  step: 3 },
+];
+
+const otherItems = [
+  { title: "Dashboard",           url: "/",                    icon: LayoutDashboard },
+  { title: "Authenticity Studio", url: "/authenticity-studio", icon: ShieldCheck },
 ];
 
 export function AppSidebar() {
@@ -46,29 +49,23 @@ export function AppSidebar() {
         </div>
         {!collapsed && (
           <div className="animate-fade-in overflow-hidden">
-            <p className="text-sm font-semibold tracking-wide text-beige leading-tight">
-              Qantara
-            </p>
-            <p className="text-[10px] text-sidebar-foreground/60 uppercase tracking-widest">
-              Logistics OS
-            </p>
+            <p className="text-sm font-semibold tracking-wide text-beige leading-tight">Qantara</p>
+            <p className="text-[10px] text-sidebar-foreground/60 uppercase tracking-widest">Logistics OS</p>
           </div>
         )}
       </div>
 
-      {/* Nav items */}
-      <nav className="flex-1 px-2 py-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive =
-            item.url === "/"
-              ? location.pathname === "/"
-              : location.pathname.startsWith(item.url);
+      {/* Nav */}
+      <nav className="flex-1 px-2 py-4 space-y-0.5">
 
+        {/* Dashboard */}
+        {otherItems.filter(i => i.url === "/").map((item) => {
+          const isActive = location.pathname === "/";
           return (
             <NavLink
               key={item.url}
               to={item.url}
-              end={item.url === "/"}
+              end
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all duration-150 group",
                 collapsed ? "justify-center px-2" : "",
@@ -77,21 +74,89 @@ export function AppSidebar() {
                   : "text-sidebar-foreground hover:bg-navy-light/60 hover:text-sidebar-accent-foreground border border-transparent"
               )}
             >
-              <item.icon
-                className={cn(
-                  "flex-shrink-0 transition-colors",
-                  collapsed ? "w-5 h-5" : "w-4 h-4",
-                  isActive ? "text-beige" : "text-sidebar-foreground group-hover:text-sidebar-accent-foreground"
-                )}
-              />
+              <item.icon className={cn("flex-shrink-0 transition-colors", collapsed ? "w-5 h-5" : "w-4 h-4", isActive ? "text-beige" : "text-sidebar-foreground group-hover:text-sidebar-accent-foreground")} />
+              {!collapsed && <span className="truncate font-medium animate-fade-in">{item.title}</span>}
+              {isActive && !collapsed && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-beige/70 flex-shrink-0" />}
+            </NavLink>
+          );
+        })}
+
+        {/* Workflow section label */}
+        {!collapsed && (
+          <div className="px-3 pt-4 pb-1">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-sidebar-foreground/40">
+              Export Workflow
+            </p>
+          </div>
+        )}
+        {collapsed && <div className="my-3 mx-2 border-t border-navy-light/30" />}
+
+        {/* Workflow steps */}
+        {workflowItems.map((item) => {
+          const isActive = location.pathname.startsWith(item.url);
+          return (
+            <NavLink
+              key={item.url}
+              to={item.url}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all duration-150 group",
+                collapsed ? "justify-center px-2" : "",
+                isActive
+                  ? "bg-beige/10 text-beige border border-beige/15 shadow-sm"
+                  : "text-sidebar-foreground hover:bg-navy-light/60 hover:text-sidebar-accent-foreground border border-transparent"
+              )}
+            >
+              {/* Step circle */}
+              {!collapsed ? (
+                <div className={cn(
+                  "flex-shrink-0 w-5 h-5 rounded-full border flex items-center justify-center text-[9px] font-bold transition-colors",
+                  isActive
+                    ? "border-beige/60 bg-beige/15 text-beige"
+                    : "border-sidebar-foreground/30 text-sidebar-foreground/50 group-hover:border-sidebar-accent-foreground/50 group-hover:text-sidebar-accent-foreground"
+                )}>
+                  {item.step}
+                </div>
+              ) : (
+                <item.icon className={cn("flex-shrink-0 w-5 h-5 transition-colors", isActive ? "text-beige" : "text-sidebar-foreground group-hover:text-sidebar-accent-foreground")} />
+              )}
               {!collapsed && (
-                <span className="truncate font-medium animate-fade-in">
-                  {item.title}
-                </span>
+                <span className="truncate font-medium animate-fade-in flex-1">{item.title}</span>
               )}
               {isActive && !collapsed && (
                 <span className="ml-auto w-1.5 h-1.5 rounded-full bg-beige/70 flex-shrink-0" />
               )}
+            </NavLink>
+          );
+        })}
+
+        {/* Other items section */}
+        {!collapsed && (
+          <div className="px-3 pt-4 pb-1">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-sidebar-foreground/40">
+              Tools
+            </p>
+          </div>
+        )}
+        {collapsed && <div className="my-3 mx-2 border-t border-navy-light/30" />}
+
+        {/* Authenticity Studio */}
+        {otherItems.filter(i => i.url !== "/").map((item) => {
+          const isActive = location.pathname.startsWith(item.url);
+          return (
+            <NavLink
+              key={item.url}
+              to={item.url}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all duration-150 group",
+                collapsed ? "justify-center px-2" : "",
+                isActive
+                  ? "bg-beige/10 text-beige border border-beige/15 shadow-sm"
+                  : "text-sidebar-foreground hover:bg-navy-light/60 hover:text-sidebar-accent-foreground border border-transparent"
+              )}
+            >
+              <item.icon className={cn("flex-shrink-0 transition-colors", collapsed ? "w-5 h-5" : "w-4 h-4", isActive ? "text-beige" : "text-sidebar-foreground group-hover:text-sidebar-accent-foreground")} />
+              {!collapsed && <span className="truncate font-medium animate-fade-in">{item.title}</span>}
+              {isActive && !collapsed && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-beige/70 flex-shrink-0" />}
             </NavLink>
           );
         })}
@@ -117,11 +182,7 @@ export function AppSidebar() {
           "hover:shadow-elevated"
         )}
       >
-        {collapsed ? (
-          <ChevronRight className="w-3 h-3" />
-        ) : (
-          <ChevronLeft className="w-3 h-3" />
-        )}
+        {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
       </button>
     </aside>
   );
