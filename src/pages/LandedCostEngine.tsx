@@ -13,15 +13,15 @@ import {
   Anchor,
   AlertTriangle,
   TrendingUp,
-  Save,
   RefreshCw,
   CloudLightning,
   Ship,
   CheckCircle2,
   Lock,
   Brain,
-  FileCheck,
+  FileText,
   ArrowLeft,
+  ArrowRight,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -59,6 +59,8 @@ const STORM_RISK = {
   severe:   { label: "Severe",   color: "text-risk-high",   bg: "bg-risk-high/10",   contrib: 0.18 },
 };
 
+const E_FACTOR_RISK_THRESHOLD = 1.15;
+
 function simulateEFactor(): EFactorData {
   const congestionKeys = ["low", "medium", "high", "critical"] as const;
   const stormKeys = ["none", "low", "moderate", "severe"] as const;
@@ -88,6 +90,7 @@ export default function LandedCostEngine() {
   const paramTax        = parseFloat(searchParams.get("tax") || "0");
   const paramProduct    = searchParams.get("product_name") || "";
   const paramConfidence = searchParams.get("confidence") || "";
+  const paramShipmentId = searchParams.get("shipment_id") || null;
 
   // User-editable fields (only V, F, I unlocked when coming from classifier)
   const [productName,  setProductName]  = useState(paramProduct);
@@ -99,11 +102,10 @@ export default function LandedCostEngine() {
   const [duty,         setDuty]         = useState(fromClassifier ? String(paramDuty) : "");   // D
   const [taxes,        setTaxes]        = useState(fromClassifier ? String(paramTax)  : "");   // T
 
-  const [eFactor,       setEFactor]       = useState<EFactorData | null>(null);
-  const [eFactorLoading,setEFactorLoading]= useState(false);
-  const [result,        setResult]        = useState<CalculationResult | null>(null);
-  const [saving,        setSaving]        = useState(false);
-  const [saved,         setSaved]         = useState(false);
+  const [eFactor,        setEFactor]        = useState<EFactorData | null>(null);
+  const [eFactorLoading, setEFactorLoading] = useState(false);
+  const [result,         setResult]         = useState<CalculationResult | null>(null);
+  const [finalizing,     setFinalizing]     = useState(false);
 
   // Re-sync if search params change (e.g., browser back/forward)
   useEffect(() => {
@@ -116,7 +118,6 @@ export default function LandedCostEngine() {
     setInsurance("");
     setEFactor(null);
     setResult(null);
-    setSaved(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramHsCode]);
 
@@ -148,7 +149,7 @@ export default function LandedCostEngine() {
     const e = eFactor?.multiplier ?? 1.0;
     const optimistic = v + f + i + dAbsolute + tAbsolute;
     const realistic  = optimistic * e;
-    setResult({
+    const calcResult = {
       v, f, i,
       d: dAbsolute,
       t: tAbsolute,
@@ -156,44 +157,95 @@ export default function LandedCostEngine() {
       optimistic,
       realistic,
       difference: realistic - optimistic,
-    });
+    };
+    setResult(calcResult);
+
+    // Write E-Factor to localStorage for Authenticity Studio to read
+    localStorage.setItem("qantara_efactor", String(e));
   };
 
-  // ── Save ──────────────────────────────────────────────────────────────────
+  // ── Finalize & navigate to Documentation Workshop ─────────────────────────
 
-  const handleSave = async () => {
+  const handleFinalizeAndGenerateDocs = async () => {
     if (!result) return;
-    setSaving(true);
+    setFinalizing(true);
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast({ title: "Sign in required", description: "Please sign in to save shipments.", variant: "destructive" });
-        setSaving(false);
+
+      if (user && paramShipmentId) {
+        // Upsert (UPDATE) the existing draft shipment
+        const { error } = await supabase
+          .from("shipments")
+          .update({
+            product_name:        productName || paramProduct || "Unnamed Product",
+            raw_cost_v:          result.v,
+            freight:             result.f,
+            insurance:           result.i,
+            duty:                result.d,
+            taxes:               result.t,
+            e_factor_multiplier: result.eFactor,
+            hs_code_assigned:    hsCode || null,
+            port_congestion_level: eFactor?.portCongestion ?? null,
+            weather_risk_level:    eFactor?.stormRisk ?? null,
+            status:              "Calculated",
+          })
+          .eq("id", paramShipmentId);
+
+        if (error) throw error;
+        toast({ title: "Costs finalized!", description: "Shipment updated to Calculated status." });
+      } else if (user && !paramShipmentId) {
+        // No existing shipment — insert a new one
+        const { data: newShipment, error } = await supabase
+          .from("shipments")
+          .insert({
+            user_id:             user.id,
+            product_name:        productName || paramProduct || "Unnamed Product",
+            raw_cost_v:          result.v,
+            freight:             result.f,
+            insurance:           result.i,
+            duty:                result.d,
+            taxes:               result.t,
+            e_factor_multiplier: result.eFactor,
+            hs_code_assigned:    hsCode || null,
+            port_congestion_level: eFactor?.portCongestion ?? null,
+            weather_risk_level:    eFactor?.stormRisk ?? null,
+            status:              "Calculated",
+          })
+          .select("id")
+          .single();
+
+        if (error) throw error;
+
+        const params = new URLSearchParams({
+          hs_code:       hsCode,
+          product_name:  productName || paramProduct,
+          product_value: String(result.v),
+          freight:       String(result.f),
+          from:          "lce",
+        });
+        if (newShipment?.id) params.set("shipment_id", newShipment.id);
+        navigate(`/documentation-workshop?${params.toString()}`);
         return;
       }
-      const { error } = await supabase.from("shipments").insert({
-        user_id:             user.id,
-        product_name:        productName || paramProduct || "Unnamed Product",
-        raw_cost_v:          result.v,
-        freight:             result.f,
-        insurance:           result.i,
-        duty:                result.d,
-        taxes:               result.t,
-        e_factor_multiplier: result.eFactor,
-        hs_code_assigned:    hsCode || null,
-        port_congestion_level: eFactor?.portCongestion ?? null,
-        weather_risk_level:    eFactor?.stormRisk ?? null,
-        status:              "Calculated",
-      });
-      if (error) throw error;
-      setSaved(true);
-      toast({ title: "Shipment saved!", description: "Compound record stored in your database." });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       toast({ title: "Save failed", description: msg, variant: "destructive" });
-    } finally {
-      setSaving(false);
+      setFinalizing(false);
+      return;
     }
+
+    // Navigate to Documentation Workshop
+    const params = new URLSearchParams({
+      hs_code:       hsCode,
+      product_name:  productName || paramProduct,
+      product_value: String(result.v),
+      freight:       String(result.f),
+      from:          "lce",
+    });
+    if (paramShipmentId) params.set("shipment_id", paramShipmentId);
+    navigate(`/documentation-workshop?${params.toString()}`);
+    setFinalizing(false);
   };
 
   // ── Form reset ────────────────────────────────────────────────────────────
@@ -201,14 +253,13 @@ export default function LandedCostEngine() {
   const handleReset = () => {
     setProductValue(""); setFreight(""); setInsurance("");
     if (!fromClassifier) { setDuty(""); setTaxes(""); setHsCode(""); setProductName(""); }
-    setEFactor(null); setResult(null); setSaved(false);
+    setEFactor(null); setResult(null);
   };
 
   const congestionInfo = eFactor ? PORT_CONGESTION[eFactor.portCongestion] : null;
   const stormInfo      = eFactor ? STORM_RISK[eFactor.stormRisk]           : null;
 
-  // Step: 3 if saved, else 2
-  const workflowStep: 1 | 2 | 3 = saved ? 3 : 2;
+  const workflowStep: 1 | 2 | 3 = 2;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -236,6 +287,9 @@ export default function LandedCostEngine() {
                 {" · "}Tax <strong className="text-foreground">{paramTax}%</strong>
                 {paramConfidence && (
                   <> · Match confidence <strong className="text-foreground">{paramConfidence}%</strong></>
+                )}
+                {paramShipmentId && (
+                  <> · <span className="text-risk-low font-medium">✓ Shipment ID linked</span></>
                 )}
               </p>
             </div>
@@ -438,23 +492,6 @@ export default function LandedCostEngine() {
             <Calculator className="w-4 h-4" />
             Calculate Landed Cost
           </Button>
-          {result && !saved && (
-            <Button
-              onClick={handleSave}
-              disabled={saving}
-              variant="outline"
-              className="border-primary/30 text-primary hover:bg-primary/5"
-            >
-              {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? "Saving…" : "Save Shipment"}
-            </Button>
-          )}
-          {saved && (
-            <div className="flex items-center gap-2 text-sm text-risk-low font-medium animate-fade-in">
-              <CheckCircle2 className="w-4 h-4" />
-              Saved to database
-            </div>
-          )}
           <Button onClick={handleReset} variant="ghost" className="text-muted-foreground hover:text-foreground ml-auto">
             <RefreshCw className="w-4 h-4" />
             Reset
@@ -548,20 +585,49 @@ export default function LandedCostEngine() {
           </Card>
         )}
 
-        {/* ── Step 3: Finalize Banner ───────────────────────────────────────── */}
-        {saved && fromClassifier && (
-          <div className="animate-fade-in rounded-xl border border-risk-low/25 bg-risk-low/8 p-5 flex items-start gap-4">
-            <div className="w-9 h-9 rounded-full bg-risk-low/20 border border-risk-low/30 flex items-center justify-center shrink-0">
-              <FileCheck className="w-4.5 h-4.5 text-risk-low" />
+        {/* ── Finalize CTA — appears after calculation ──────────────────────── */}
+        {result && (
+          <div className="animate-fade-in rounded-xl border-2 border-primary bg-primary/8 p-6 space-y-4">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
+                <FileText className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-foreground">
+                  Costs Calculated — Ready to Generate Documents
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Realistic cost:{" "}
+                  <span className="font-mono font-bold text-foreground">{fmt(result.realistic)}</span>
+                  {result.eFactor > E_FACTOR_RISK_THRESHOLD && (
+                    <span className="ml-2 text-warning font-semibold">
+                      ⚠ High E-Factor risk
+                    </span>
+                  )}
+                  {paramShipmentId && (
+                    <span className="ml-2 text-risk-low font-medium">· Shipment will be updated</span>
+                  )}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Compound record saved — Step 3: Finalize</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                HS code <span className="font-mono font-bold text-foreground">{hsCode}</span> with
-                status <Badge variant="outline" className="text-[10px] ml-1">Calculated</Badge> stored in your shipments database.
-                Proceed to the Authenticity Studio to validate export documents.
-              </p>
-            </div>
+            <Button
+              onClick={handleFinalizeAndGenerateDocs}
+              disabled={finalizing}
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold h-12 shadow-md"
+              size="lg"
+            >
+              {finalizing ? (
+                <><RefreshCw className="w-4 h-4 animate-spin" /> Saving & Redirecting…</>
+              ) : (
+                <>
+                  Finalize Costs & Generate Documents
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </Button>
+            <p className="text-[11px] text-muted-foreground text-center">
+              This will save the calculated costs and open the Documentation Workshop with your data pre-filled
+            </p>
           </div>
         )}
 

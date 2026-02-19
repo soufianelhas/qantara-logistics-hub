@@ -23,6 +23,8 @@ import {
   type TaricEntry,
   getTopMatches,
 } from "@/data/taric-database";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 // ─── Stage machine ────────────────────────────────────────────────────────────
 
@@ -63,6 +65,7 @@ function ConfidenceBar({ value }: { value: number }) {
 
 export default function HSNeuralNavigator() {
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   // Stage state
   const [stage, setStage] = useState<Stage>("category");
@@ -72,6 +75,10 @@ export default function HSNeuralNavigator() {
   const [isClassifying, setIsClassifying] = useState(false);
   const [results, setResults] = useState<MatchResult[]>([]);
   const [selectedResult, setSelectedResult] = useState<MatchResult | null>(null);
+
+  // Persistent shipment state
+  const [shipmentId, setShipmentId] = useState<string | null>(null);
+  const [isCreatingShipment, setIsCreatingShipment] = useState(false);
 
   // ── Navigation helpers ──────────────────────────────────────────────────
 
@@ -88,10 +95,52 @@ export default function HSNeuralNavigator() {
     setStage("details");
   };
 
+  // Create a draft shipment in Supabase (authenticated only)
+  const createDraftShipment = async (productName: string): Promise<string | null> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data, error } = await supabase
+        .from("shipments")
+        .insert({
+          user_id: user.id,
+          product_name: productName || "Unclassified Product",
+          status: "Draft",
+          raw_cost_v: 0,
+          freight: 0,
+          insurance: 0,
+          duty: 0,
+          taxes: 0,
+          e_factor_multiplier: 1.0,
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      return data?.id ?? null;
+    } catch (err) {
+      console.warn("Could not create draft shipment (guest mode):", err);
+      return null;
+    }
+  };
+
   const handleClassify = async () => {
     setIsClassifying(true);
     setResults([]);
     setSelectedResult(null);
+
+    // Create draft shipment if not already created
+    if (!shipmentId && !isCreatingShipment) {
+      setIsCreatingShipment(true);
+      const id = await createDraftShipment(productDescription.slice(0, 60));
+      if (id) {
+        setShipmentId(id);
+        toast({ title: "Session started", description: "Draft shipment created — your progress is saved." });
+      }
+      setIsCreatingShipment(false);
+    }
+
     // Simulate async classification (400-900ms)
     await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
     const matches = getTopMatches(selectedCategory, selectedSubcategory, productDescription);
@@ -100,8 +149,36 @@ export default function HSNeuralNavigator() {
     setStage("results");
   };
 
-  const handleExportToLCE = () => {
+  const handleExportToLCE = async () => {
     if (!selectedResult) return;
+
+    let activeShipmentId = shipmentId;
+
+    // Update the draft shipment with the selected HS code
+    if (activeShipmentId) {
+      try {
+        await supabase
+          .from("shipments")
+          .update({
+            hs_code_assigned: selectedResult.entry.hs,
+            product_name: selectedResult.entry.description,
+          })
+          .eq("id", activeShipmentId);
+      } catch (err) {
+        console.warn("Could not update shipment with HS code:", err);
+      }
+    } else {
+      // Try creating one now if still not created
+      activeShipmentId = await createDraftShipment(selectedResult.entry.description);
+      if (activeShipmentId) {
+        setShipmentId(activeShipmentId);
+        await supabase
+          .from("shipments")
+          .update({ hs_code_assigned: selectedResult.entry.hs })
+          .eq("id", activeShipmentId);
+      }
+    }
+
     const params = new URLSearchParams({
       hs_code:      selectedResult.entry.hs,
       duty:         String(selectedResult.entry.duty),
@@ -110,6 +187,11 @@ export default function HSNeuralNavigator() {
       confidence:   String(selectedResult.confidence),
       from:         "classifier",
     });
+
+    if (activeShipmentId) {
+      params.set("shipment_id", activeShipmentId);
+    }
+
     navigate(`/landed-cost?${params.toString()}`);
   };
 
@@ -120,6 +202,7 @@ export default function HSNeuralNavigator() {
     setProductDescription("");
     setResults([]);
     setSelectedResult(null);
+    setShipmentId(null);
   };
 
   // ── Stage: Category ─────────────────────────────────────────────────────
@@ -398,6 +481,11 @@ export default function HSNeuralNavigator() {
             <p className="text-sm font-semibold text-foreground">
               HS Code <span className="font-mono text-primary">{selectedResult.entry.hs}</span> selected
             </p>
+            {shipmentId && (
+              <Badge variant="outline" className="ml-auto text-[10px] border-risk-low/40 text-risk-low">
+                ✓ Session saved
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
@@ -414,7 +502,7 @@ export default function HSNeuralNavigator() {
             className="w-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
             size="lg"
           >
-            Calculate Landed Cost for this Code
+            Apply Code & Calculate Costs
             <ArrowRight className="w-4 h-4" />
           </Button>
           <p className="text-[11px] text-muted-foreground text-center">

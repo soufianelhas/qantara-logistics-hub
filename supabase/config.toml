@@ -1,1 +1,4 @@
 project_id = "ipwwanbckwffxxcxhfmt"
+
+[functions.image-enhance]
+verify_jwt = false
