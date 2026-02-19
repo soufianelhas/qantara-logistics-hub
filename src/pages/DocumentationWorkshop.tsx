@@ -17,8 +17,8 @@ import {
 import {
   FileText, PackageOpen, Ship, Globe2, Star, Leaf, ShieldCheck,
   Sprout, Heart, Trees, Zap, Moon, Flag, CheckCircle2, Clock,
-  AlertCircle, Upload, Brain, Download, Printer, ChevronRight,
-  ArrowLeft, Eye, Edit3, Send, RefreshCw, Building2, User,
+  AlertCircle, Upload, Brain, Printer, ChevronRight,
+  ArrowLeft, Eye, Edit3, Send, RefreshCw, Building2, User, Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -365,13 +365,10 @@ function generateAndPrintDocument(docId: string, previewRef: React.RefObject<HTM
 
 function PassportReader({ onAutoFill }: { onAutoFill: (details: Partial<ExporterDetails>) => void }) {
   const [state, setState] = useState<"idle" | "processing" | "done">("idle");
-  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setUploadedFile(url);
     setState("processing");
     setTimeout(() => {
       setState("done");
@@ -447,12 +444,20 @@ export default function DocumentationWorkshop() {
   const { toast } = useToast();
 
   // URL params from LCE
-  const hsCode      = searchParams.get("hs_code") || "";
-  const productName = searchParams.get("product_name") || "";
-  const productValue = parseFloat(searchParams.get("product_value") || "0");
-  const freight     = parseFloat(searchParams.get("freight") || "0");
-  const shipmentId  = searchParams.get("shipment_id") || null;
-  const fromLCE     = searchParams.get("from") === "lce";
+  const paramHsCode      = searchParams.get("hs_code") || "";
+  const paramProductName = searchParams.get("product_name") || "";
+  const paramProductValue = parseFloat(searchParams.get("product_value") || "0");
+  const paramFreight     = parseFloat(searchParams.get("freight") || "0");
+  const shipmentId       = searchParams.get("shipment_id") || null;
+  const fromLCE          = searchParams.get("from") === "lce";
+
+  // Resolved data — may come from DB or URL params
+  const [hsCode,       setHsCode]       = useState(paramHsCode);
+  const [productName,  setProductName]  = useState(paramProductName);
+  const [productValue, setProductValue] = useState(paramProductValue);
+  const [freight,      setFreight]      = useState(paramFreight);
+  const [loadedFromDB, setLoadedFromDB] = useState(false);
+  const [dbLoading,    setDbLoading]    = useState(false);
 
   const [targetMarket, setTargetMarket] = useState("EU");
   const [checklist, setChecklist]       = useState<RequiredDocument[]>([]);
@@ -464,7 +469,7 @@ export default function DocumentationWorkshop() {
   const [exporter,  setExporter]  = useState<ExporterDetails>(DEFAULT_EXPORTER);
   const [consignee, setConsignee] = useState<ConsigneeDetails>(DEFAULT_CONSIGNEE);
   const [quantity,  setQuantity]  = useState(1);
-  const [unitPrice, setUnitPrice] = useState(productValue);
+  const [unitPrice, setUnitPrice] = useState(paramProductValue);
   const [currency,  setCurrency]  = useState("USD");
   const [incoterm,  setIncoterm]  = useState("FOB");
   const [invoiceNo, setInvoiceNo] = useState(`INV-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`);
@@ -472,6 +477,42 @@ export default function DocumentationWorkshop() {
   const [savingDocId, setSavingDocId] = useState<string | null>(null);
 
   const previewRef = useRef<HTMLDivElement>(null);
+
+  // ── Fetch shipment from DB on load ────────────────────────────────────────
+
+  useEffect(() => {
+    if (!shipmentId) return;
+
+    const fetchShipment = async () => {
+      setDbLoading(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase
+          .from("shipments")
+          .select("hs_code_assigned, product_name, raw_cost_v, freight")
+          .eq("id", shipmentId)
+          .single();
+
+        if (error || !data) return;
+
+        // Prefer DB values over URL params
+        if (data.hs_code_assigned) setHsCode(data.hs_code_assigned);
+        if (data.product_name)     setProductName(data.product_name);
+        if (data.raw_cost_v > 0)   { setProductValue(data.raw_cost_v); setUnitPrice(data.raw_cost_v); }
+        if (data.freight > 0)      setFreight(data.freight);
+        setLoadedFromDB(true);
+      } catch (err) {
+        console.warn("Could not fetch shipment:", err);
+      } finally {
+        setDbLoading(false);
+      }
+    };
+
+    fetchShipment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipmentId]);
 
   useEffect(() => {
     if (productValue > 0) setUnitPrice(productValue);
@@ -644,8 +685,16 @@ export default function DocumentationWorkshop() {
         {/* Stepper */}
         <WorkflowStepper currentStep={3} />
 
+        {/* Loading state */}
+        {dbLoading && (
+          <div className="rounded-xl border border-primary/20 bg-primary/6 px-4 py-3 flex items-center gap-3 animate-fade-in">
+            <RefreshCw className="w-4 h-4 text-primary animate-spin shrink-0" />
+            <p className="text-xs text-muted-foreground">Loading shipment data from database…</p>
+          </div>
+        )}
+
         {/* Context banner */}
-        {(hsCode || productName) && (
+        {(hsCode || productName) && !dbLoading && (
           <div className="rounded-xl border border-primary/20 bg-primary/6 px-4 py-3 flex items-center gap-3 animate-fade-in">
             <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
@@ -659,6 +708,11 @@ export default function DocumentationWorkshop() {
                 {freight > 0 && <> · Freight ${freight.toLocaleString()}</>}
               </p>
             </div>
+            {loadedFromDB && (
+              <Badge variant="outline" className="text-[10px] border-risk-low/40 text-risk-low gap-1 shrink-0">
+                <Database className="w-2.5 h-2.5" /> Loaded from shipment
+              </Badge>
+            )}
             {fromLCE && (
               <button onClick={() => navigate(-1)} className="text-[11px] text-primary hover:underline flex items-center gap-1 shrink-0">
                 <ArrowLeft className="w-3 h-3" /> Back to LCE
