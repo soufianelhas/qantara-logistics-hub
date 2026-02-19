@@ -1,96 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Qantara Design System — Professional Minimalism */
+    /* Navy Blue #1B263B → hsl(213,37%,17%) */
+    /* Beige #F5EBE0 → hsl(30,57%,92%) */
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --background: 30 57% 93%;
+    --foreground: 213 37% 14%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --card: 30 40% 97%;
+    --card-foreground: 213 37% 14%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --popover: 30 40% 97%;
+    --popover-foreground: 213 37% 14%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Primary = Navy */
+    --primary: 213 37% 17%;
+    --primary-foreground: 30 57% 95%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Secondary = warm slate */
+    --secondary: 214 20% 88%;
+    --secondary-foreground: 213 37% 17%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --muted: 30 30% 88%;
+    --muted-foreground: 213 20% 45%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Accent = slate-blue tint */
+    --accent: 214 32% 78%;
+    --accent-foreground: 213 37% 14%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 20% 82%;
+    --input: 214 20% 82%;
+    --ring: 213 37% 17%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 0 0% 98%;
+    /* Sidebar specific */
+    --sidebar-background: 213 37% 17%;
+    --sidebar-foreground: 210 30% 75%;
+    --sidebar-primary: 30 57% 93%;
+    --sidebar-primary-foreground: 213 37% 17%;
+    --sidebar-accent: 213 32% 24%;
+    --sidebar-accent-foreground: 210 40% 90%;
+    --sidebar-border: 213 30% 22%;
+    --sidebar-ring: 30 57% 80%;
 
-    --sidebar-foreground: 240 5.3% 26.1%;
+    /* Qantara custom tokens */
+    --navy: 213 37% 17%;
+    --navy-light: 213 32% 24%;
+    --navy-dark: 213 40% 11%;
+    --beige: 30 57% 93%;
+    --beige-dark: 30 40% 86%;
+    --slate-accent: 214 20% 55%;
+    --success: 145 60% 36%;
+    --warning: 38 90% 50%;
+    --risk-high: 0 72% 51%;
+    --risk-medium: 38 90% 50%;
+    --risk-low: 145 60% 36%;
 
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Gradients */
+    --gradient-sidebar: linear-gradient(180deg, hsl(213, 40%, 14%) 0%, hsl(213, 37%, 17%) 100%);
+    --gradient-card: linear-gradient(135deg, hsl(30, 40%, 97%) 0%, hsl(30, 50%, 94%) 100%);
+    --shadow-card: 0 1px 3px 0 hsl(213 37% 17% / 0.08), 0 4px 12px -2px hsl(213 37% 17% / 0.06);
+    --shadow-elevated: 0 4px 16px -4px hsl(213 37% 17% / 0.15), 0 1px 4px hsl(213 37% 17% / 0.08);
   }
 }
 
@@ -101,5 +81,13 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', sans-serif;
+    letter-spacing: -0.02em;
   }
 }
