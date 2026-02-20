@@ -48,8 +48,9 @@ const E_CRITICAL = 1.2;
 
 function getNextStep(status: ShipmentStatus): { label: string; route: string; icon: React.ElementType } | null {
   switch (status) {
-    case "Draft":      return { label: "Move to Calculation", route: "/landed-cost", icon: Calculator };
-    case "Calculated": return { label: "Generate Documents",  route: "/documentation-workshop", icon: FileText };
+    case "Draft":      return { label: "Calculate Costs",    route: "/landed-cost",            icon: Calculator };
+    case "Calculated": return { label: "Generate Documents", route: "/documentation-workshop",  icon: FileText };
+    case "Filed":      return { label: "View Documents",     route: "/documentation-workshop",  icon: FileText };
     default:           return null;
   }
 }
