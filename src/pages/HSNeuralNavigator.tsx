@@ -132,17 +132,6 @@ export default function HSNeuralNavigator() {
     setSelectedResult(null);
     setClarification(null);
 
-    // Create draft shipment
-    if (!shipmentId && !isCreatingShipment) {
-      setIsCreatingShipment(true);
-      const id = await createDraftShipment(productDescription.slice(0, 60));
-      if (id) {
-        setShipmentId(id);
-        toast({ title: "Session started", description: "Draft shipment created — your progress is saved." });
-      }
-      setIsCreatingShipment(false);
-    }
-
     try {
       const categoryLabel = currentCategory?.label || selectedCategory;
       const subcatLabel = currentCategory?.subcategories.find(s => s.id === selectedSubcategory)?.label || selectedSubcategory;
@@ -187,22 +176,43 @@ export default function HSNeuralNavigator() {
     }
   };
 
+  // Create draft shipment when user selects a best-match result
+  const handleSelectResult = async (result: AIResult) => {
+    const wasSelected = selectedResult?.hs === result.hs;
+    setSelectedResult(wasSelected ? null : result);
+
+    // Create draft shipment on first selection if none exists
+    if (!wasSelected && !shipmentId && !isCreatingShipment) {
+      setIsCreatingShipment(true);
+      const id = await createDraftShipment(result.description);
+      if (id) {
+        setShipmentId(id);
+        await supabase.from("shipments").update({ hs_code_assigned: result.hs }).eq("id", id);
+        toast({ title: "Draft shipment created", description: "Your progress is now saved to the database." });
+      }
+      setIsCreatingShipment(false);
+    }
+  };
+
   const handleExportToLCE = async () => {
     if (!selectedResult) return;
     let activeShipmentId = shipmentId;
 
+    // Ensure shipment exists
+    if (!activeShipmentId) {
+      activeShipmentId = await createDraftShipment(selectedResult.description);
+      if (activeShipmentId) {
+        setShipmentId(activeShipmentId);
+      }
+    }
+
+    // Update HS code on the shipment
     if (activeShipmentId) {
       try {
         await supabase.from("shipments")
           .update({ hs_code_assigned: selectedResult.hs, product_name: selectedResult.description })
           .eq("id", activeShipmentId);
       } catch (err) { console.warn("Could not update shipment:", err); }
-    } else {
-      activeShipmentId = await createDraftShipment(selectedResult.description);
-      if (activeShipmentId) {
-        setShipmentId(activeShipmentId);
-        await supabase.from("shipments").update({ hs_code_assigned: selectedResult.hs }).eq("id", activeShipmentId);
-      }
     }
 
     const params = new URLSearchParams({
@@ -363,7 +373,7 @@ export default function HSNeuralNavigator() {
           const eInfo = E_RISK_BADGE[r.eRisk];
 
           return (
-            <button key={r.hs} onClick={() => setSelectedResult(isSelected ? null : r)}
+            <button key={r.hs} onClick={() => handleSelectResult(r)}
               className={cn("w-full text-left p-4 rounded-xl border transition-all duration-200",
                 isSelected ? "border-primary bg-primary/8 shadow-sm" : "border-border bg-card hover:border-primary/30 hover:bg-primary/4")}>
               <div className="flex items-start gap-3">

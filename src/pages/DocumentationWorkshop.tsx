@@ -498,8 +498,8 @@ export default function DocumentationWorkshop() {
   const urlShipmentId    = searchParams.get("shipment_id") || null;
   const fromLCE          = searchParams.get("from") === "lce";
 
-  // ── Smart shipment recovery ───────────────────────────────────────────────
-  const { shipmentId, shipment: recoveredShipment, loading: recoveryLoading, recovered } = useShipmentRecovery(urlShipmentId, ["Calculated"]);
+  // ── Smart shipment recovery — accept Draft or Calculated ────────────────
+  const { shipmentId, shipment: recoveredShipment, loading: recoveryLoading, recovered } = useShipmentRecovery(urlShipmentId, ["Draft", "Calculated"]);
 
   // Resolved data — may come from DB or URL params
   const [hsCode,       setHsCode]       = useState(paramHsCode);
@@ -602,6 +602,42 @@ export default function DocumentationWorkshop() {
     }
     return computed;
   }, [checklist, exporter, consignee, quantity, unitPrice, manualStatuses]);
+
+  // ── Auto-save documents to DB when status changes to Ready ────────────────
+  const prevStatusesRef = useRef<Record<string, DocStatus>>({});
+
+  useEffect(() => {
+    if (!shipmentId) return;
+    const prev = prevStatusesRef.current;
+    const toSync = checklist.filter(doc => {
+      const cur = statuses[doc.id];
+      const was = prev[doc.id];
+      return cur === "Ready" && was !== "Ready" && was !== "Filed";
+    });
+    prevStatusesRef.current = { ...statuses };
+
+    if (toSync.length === 0) return;
+
+    const syncDocs = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        for (const doc of toSync) {
+          await supabase.from("shipment_documents").upsert({
+            user_id: user.id,
+            shipment_id: shipmentId,
+            document_type: doc.id,
+            document_label: doc.label,
+            target_market: targetMarket,
+            status: "Ready" as any,
+            metadata: { hs_code: hsCode, product_name: productName },
+          }, { onConflict: "user_id,document_type,shipment_id" });
+        }
+        toast({ title: "Documents synced", description: `${toSync.length} document(s) auto-saved as Ready` });
+      } catch { /* silent */ }
+    };
+    syncDocs();
+  }, [statuses, shipmentId, checklist, targetMarket, hsCode, productName]);
 
   const readyCount = Object.values(statuses).filter(s => s === "Ready" || s === "Filed").length;
   const progressPercent = checklist.length > 0 ? Math.round((readyCount / checklist.length) * 100) : 0;

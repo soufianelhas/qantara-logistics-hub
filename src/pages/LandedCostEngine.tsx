@@ -102,8 +102,14 @@ export default function LandedCostEngine() {
   const paramConfidence = searchParams.get("confidence") || "";
   const paramShipmentId = searchParams.get("shipment_id") || null;
 
-  // Smart shipment recovery
-  const { shipmentId: activeShipmentId, shipment: recoveredShipment, loading: recoveryLoading, recovered } = useShipmentRecovery(paramShipmentId, ["Draft"]);
+  // Smart shipment recovery — accept Draft or Calculated so we can resume
+  const { shipmentId: recoveredId, shipment: recoveredShipment, loading: recoveryLoading, recovered, setShipmentId: setRecoveredId } = useShipmentRecovery(paramShipmentId, ["Draft", "Calculated"]);
+  const [activeShipmentId, setActiveShipmentId] = useState<string | null>(paramShipmentId);
+
+  // Sync recovered ID into local active state
+  useEffect(() => {
+    if (recoveredId && !activeShipmentId) setActiveShipmentId(recoveredId);
+  }, [recoveredId]);
 
   // User-editable fields — restore from localStorage
   const [productName,  setProductName]  = useState(() => paramProduct || localStorage.getItem("qantara_lce_productName") || "");
