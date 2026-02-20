@@ -24,10 +24,12 @@ import {
   ArrowRight,
   Thermometer,
   Eye,
+  Database,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useShipmentRecovery } from "@/hooks/use-shipment-recovery";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -100,31 +102,47 @@ export default function LandedCostEngine() {
   const paramConfidence = searchParams.get("confidence") || "";
   const paramShipmentId = searchParams.get("shipment_id") || null;
 
-  // User-editable fields
-  const [productName,  setProductName]  = useState(paramProduct);
-  const [hsCode,       setHsCode]       = useState(paramHsCode);
-  const [productValue, setProductValue] = useState("");
-  const [freight,      setFreight]      = useState("");
-  const [insurance,    setInsurance]    = useState("");
-  const [duty,         setDuty]         = useState(fromClassifier ? String(paramDuty) : "");
-  const [taxes,        setTaxes]        = useState(fromClassifier ? String(paramTax)  : "");
+  // Smart shipment recovery
+  const { shipmentId: activeShipmentId, shipment: recoveredShipment, loading: recoveryLoading, recovered } = useShipmentRecovery(paramShipmentId, ["Draft"]);
+
+  // User-editable fields — restore from localStorage
+  const [productName,  setProductName]  = useState(() => paramProduct || localStorage.getItem("qantara_lce_productName") || "");
+  const [hsCode,       setHsCode]       = useState(() => paramHsCode || localStorage.getItem("qantara_lce_hsCode") || "");
+  const [productValue, setProductValue] = useState(() => localStorage.getItem("qantara_lce_productValue") || "");
+  const [freight,      setFreight]      = useState(() => localStorage.getItem("qantara_lce_freight") || "");
+  const [insurance,    setInsurance]    = useState(() => localStorage.getItem("qantara_lce_insurance") || "");
+  const [duty,         setDuty]         = useState(fromClassifier ? String(paramDuty) : () => localStorage.getItem("qantara_lce_duty") || "");
+  const [taxes,        setTaxes]        = useState(fromClassifier ? String(paramTax)  : () => localStorage.getItem("qantara_lce_taxes") || "");
 
   const [eFactor,        setEFactor]        = useState<EFactorData | null>(null);
   const [eFactorLoading, setEFactorLoading] = useState(false);
   const [result,         setResult]         = useState<CalculationResult | null>(null);
   const [finalizing,     setFinalizing]     = useState(false);
 
+  // Save form state to localStorage
+  useEffect(() => { try { localStorage.setItem("qantara_lce_productName", productName); } catch {} }, [productName]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_hsCode", hsCode); } catch {} }, [hsCode]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_productValue", productValue); } catch {} }, [productValue]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_freight", freight); } catch {} }, [freight]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_insurance", insurance); } catch {} }, [insurance]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_duty", duty); } catch {} }, [duty]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_taxes", taxes); } catch {} }, [taxes]);
+
+  // Load recovered shipment data
   useEffect(() => {
+    if (recovered && recoveredShipment && !fromClassifier) {
+      if (recoveredShipment.product_name) setProductName(recoveredShipment.product_name);
+      if (recoveredShipment.hs_code_assigned) setHsCode(recoveredShipment.hs_code_assigned);
+      toast({ title: "Shipment recovered", description: `Resumed: ${recoveredShipment.product_name || "Unnamed"}` });
+    }
+  }, [recovered, recoveredShipment]);
+
+  useEffect(() => {
+    if (!fromClassifier) return;
     setProductName(paramProduct);
     setHsCode(paramHsCode);
-    setDuty(fromClassifier ? String(paramDuty) : "");
-    setTaxes(fromClassifier ? String(paramTax)  : "");
-    setProductValue("");
-    setFreight("");
-    setInsurance("");
-    setEFactor(null);
-    setResult(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setDuty(String(paramDuty));
+    setTaxes(String(paramTax));
   }, [paramHsCode]);
 
   // ── E-Factor — Real-Time Weather ──────────────────────────────────────────
@@ -190,7 +208,7 @@ export default function LandedCostEngine() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      if (user && paramShipmentId) {
+      if (user && activeShipmentId) {
         const { error } = await supabase
           .from("shipments")
           .update({
@@ -206,10 +224,10 @@ export default function LandedCostEngine() {
             weather_risk_level:    eFactor?.stormRisk ?? null,
             status:              "Calculated",
           })
-          .eq("id", paramShipmentId);
+          .eq("id", activeShipmentId);
         if (error) throw error;
         toast({ title: "Costs finalized!", description: "Shipment updated to Calculated status." });
-      } else if (user && !paramShipmentId) {
+      } else if (user && !activeShipmentId) {
         const { data: newShipment, error } = await supabase
           .from("shipments")
           .insert({
@@ -248,7 +266,7 @@ export default function LandedCostEngine() {
       hs_code: hsCode, product_name: productName || paramProduct,
       product_value: String(result.v), freight: String(result.f), from: "lce",
     });
-    if (paramShipmentId) params.set("shipment_id", paramShipmentId);
+    if (activeShipmentId) params.set("shipment_id", activeShipmentId);
     navigate(`/documentation-workshop?${params.toString()}`);
     setFinalizing(false);
   };
@@ -268,6 +286,22 @@ export default function LandedCostEngine() {
 
         <WorkflowStepper currentStep={2} />
 
+        {/* Recovered shipment banner */}
+        {recovered && !fromClassifier && (
+          <div className="rounded-xl border border-risk-low/30 bg-risk-low/6 px-4 py-3 flex items-center gap-3 animate-fade-in">
+            <Database className="w-4 h-4 text-risk-low shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-foreground">
+                Shipment auto-recovered: <span className="text-primary">{recoveredShipment?.product_name || "Unnamed"}</span>
+              </p>
+              <p className="text-[11px] text-muted-foreground">Most recent Draft shipment loaded automatically.</p>
+            </div>
+            <Badge variant="outline" className="text-[10px] border-risk-low/40 text-risk-low gap-1 shrink-0">
+              <Database className="w-2.5 h-2.5" /> Recovered
+            </Badge>
+          </div>
+        )}
+
         {/* Provenance banner */}
         {fromClassifier && (
           <div className="rounded-xl border border-primary/20 bg-primary/6 px-4 py-3.5 flex items-center gap-3 animate-fade-in">
@@ -281,7 +315,7 @@ export default function LandedCostEngine() {
                 {" · "}Duty <strong className="text-foreground">{paramDuty}%</strong>
                 {" · "}Tax <strong className="text-foreground">{paramTax}%</strong>
                 {paramConfidence && <> · Match confidence <strong className="text-foreground">{paramConfidence}%</strong></>}
-                {paramShipmentId && <> · <span className="text-risk-low font-medium">✓ Shipment ID linked</span></>}
+                {activeShipmentId && <> · <span className="text-risk-low font-medium">✓ Shipment ID linked</span></>}
               </p>
             </div>
             <Badge variant="outline" className="text-[10px] border-primary/30 text-primary shrink-0">Auto-filled</Badge>
@@ -547,7 +581,7 @@ export default function LandedCostEngine() {
                   {result.eFactor > E_FACTOR_RISK_THRESHOLD && (
                     <span className="ml-2 text-warning font-semibold">⚠ High E-Factor risk</span>
                   )}
-                  {paramShipmentId && <span className="ml-2 text-risk-low font-medium">· Shipment will be updated</span>}
+                  {activeShipmentId && <span className="ml-2 text-risk-low font-medium">· Shipment will be updated</span>}
                 </p>
               </div>
             </div>

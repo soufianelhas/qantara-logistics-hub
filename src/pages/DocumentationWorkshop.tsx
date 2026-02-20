@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { WorkflowStepper } from "@/components/WorkflowStepper";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -15,6 +16,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   FileText, PackageOpen, Ship, Globe2, Star, Leaf, ShieldCheck,
   Sprout, Heart, Trees, Zap, Moon, Flag, CheckCircle2, Clock,
   AlertCircle, Upload, Brain, Printer, ChevronRight,
@@ -23,6 +30,8 @@ import {
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { usePersistedState } from "@/hooks/use-persisted-state";
+import { useShipmentRecovery } from "@/hooks/use-shipment-recovery";
 import {
   TARGET_MARKETS,
   buildChecklist,
@@ -94,6 +103,44 @@ function StatusBadge({ status }: { status: DocStatus }) {
       {meta.label}
     </span>
   );
+}
+
+// ─── Required fields per document type ────────────────────────────────────────
+
+function getRequiredFields(docId: string): string[] {
+  switch (docId) {
+    case "commercial_invoice":
+      return ["exporter.companyName", "exporter.address", "exporter.city", "consignee.companyName", "consignee.country", "quantity", "unitPrice"];
+    case "eur1_certificate":
+    case "certificate_of_origin":
+      return ["exporter.companyName", "exporter.address", "exporter.city", "consignee.companyName", "consignee.country"];
+    case "packing_list":
+      return ["exporter.companyName", "consignee.companyName", "quantity"];
+    case "bill_of_lading":
+      return ["exporter.companyName", "consignee.companyName", "consignee.country"];
+    default:
+      return ["exporter.companyName", "exporter.city"];
+  }
+}
+
+function checkFieldFilled(fieldPath: string, exporter: ExporterDetails, consignee: ConsigneeDetails, quantity: number, unitPrice: number): boolean {
+  if (fieldPath === "quantity") return quantity > 0;
+  if (fieldPath === "unitPrice") return unitPrice > 0;
+  const [section, key] = fieldPath.split(".");
+  if (section === "exporter") return !!(exporter as any)[key];
+  if (section === "consignee") return !!(consignee as any)[key];
+  return false;
+}
+
+function computeDocStatus(
+  docId: string, exporter: ExporterDetails, consignee: ConsigneeDetails,
+  quantity: number, unitPrice: number
+): "Missing" | "Draft" | "Ready" {
+  const required = getRequiredFields(docId);
+  const filledCount = required.filter(f => checkFieldFilled(f, exporter, consignee, quantity, unitPrice)).length;
+  if (filledCount === 0) return "Missing";
+  if (filledCount >= required.length) return "Ready";
+  return "Draft";
 }
 
 // ─── Document Preview templates ───────────────────────────────────────────────
@@ -448,8 +495,11 @@ export default function DocumentationWorkshop() {
   const paramProductName = searchParams.get("product_name") || "";
   const paramProductValue = parseFloat(searchParams.get("product_value") || "0");
   const paramFreight     = parseFloat(searchParams.get("freight") || "0");
-  const shipmentId       = searchParams.get("shipment_id") || null;
+  const urlShipmentId    = searchParams.get("shipment_id") || null;
   const fromLCE          = searchParams.get("from") === "lce";
+
+  // ── Smart shipment recovery ───────────────────────────────────────────────
+  const { shipmentId, shipment: recoveredShipment, loading: recoveryLoading, recovered } = useShipmentRecovery(urlShipmentId, ["Calculated"]);
 
   // Resolved data — may come from DB or URL params
   const [hsCode,       setHsCode]       = useState(paramHsCode);
@@ -461,13 +511,13 @@ export default function DocumentationWorkshop() {
 
   const [targetMarket, setTargetMarket] = useState("EU");
   const [checklist, setChecklist]       = useState<RequiredDocument[]>([]);
-  const [statuses, setStatuses]         = useState<Record<string, DocStatus>>({});
+  const [manualStatuses, setManualStatuses] = useState<Record<string, DocStatus>>({});
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [activeTab, setActiveTab]       = useState<"form" | "preview">("form");
 
-  // Form state
-  const [exporter,  setExporter]  = useState<ExporterDetails>(DEFAULT_EXPORTER);
-  const [consignee, setConsignee] = useState<ConsigneeDetails>(DEFAULT_CONSIGNEE);
+  // Form state — persisted to localStorage
+  const [exporter, setExporter]   = usePersistedState<ExporterDetails>("qantara_exporter", DEFAULT_EXPORTER);
+  const [consignee, setConsignee] = usePersistedState<ConsigneeDetails>("qantara_consignee", DEFAULT_CONSIGNEE);
   const [quantity,  setQuantity]  = useState(1);
   const [unitPrice, setUnitPrice] = useState(paramProductValue);
   const [currency,  setCurrency]  = useState("USD");
@@ -479,10 +529,23 @@ export default function DocumentationWorkshop() {
   const previewRef = useRef<HTMLDivElement>(null);
   const [filingShipment, setFilingShipment] = useState(false);
 
-  // ── Fetch shipment from DB on load ────────────────────────────────────────
+  // ── Load recovered shipment data ──────────────────────────────────────────
 
   useEffect(() => {
-    if (!shipmentId) return;
+    if (recovered && recoveredShipment && !loadedFromDB) {
+      if (recoveredShipment.hs_code_assigned) setHsCode(recoveredShipment.hs_code_assigned);
+      if (recoveredShipment.product_name) setProductName(recoveredShipment.product_name);
+      if (recoveredShipment.raw_cost_v > 0) { setProductValue(recoveredShipment.raw_cost_v); setUnitPrice(recoveredShipment.raw_cost_v); }
+      if (recoveredShipment.freight > 0) setFreight(recoveredShipment.freight);
+      setLoadedFromDB(true);
+      toast({ title: "Shipment recovered", description: `Resumed shipment: ${recoveredShipment.product_name || "Unnamed"}` });
+    }
+  }, [recovered, recoveredShipment]);
+
+  // ── Fetch shipment from DB on load (explicit ID) ──────────────────────────
+
+  useEffect(() => {
+    if (!urlShipmentId || recovered) return;
 
     const fetchShipment = async () => {
       setDbLoading(true);
@@ -493,12 +556,11 @@ export default function DocumentationWorkshop() {
         const { data, error } = await supabase
           .from("shipments")
           .select("hs_code_assigned, product_name, raw_cost_v, freight")
-          .eq("id", shipmentId)
+          .eq("id", urlShipmentId)
           .single();
 
         if (error || !data) return;
 
-        // Prefer DB values over URL params
         if (data.hs_code_assigned) setHsCode(data.hs_code_assigned);
         if (data.product_name)     setProductName(data.product_name);
         if (data.raw_cost_v > 0)   { setProductValue(data.raw_cost_v); setUnitPrice(data.raw_cost_v); }
@@ -512,8 +574,7 @@ export default function DocumentationWorkshop() {
     };
 
     fetchShipment();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shipmentId]);
+  }, [urlShipmentId, recovered]);
 
   useEffect(() => {
     if (productValue > 0) setUnitPrice(productValue);
@@ -524,23 +585,51 @@ export default function DocumentationWorkshop() {
     if (!hsCode) return;
     const docs = buildChecklist(hsCode, targetMarket);
     setChecklist(docs);
-    setStatuses((prev) => {
-      const next: Record<string, DocStatus> = {};
-      docs.forEach((d) => { next[d.id] = prev[d.id] ?? "Missing"; });
-      return next;
-    });
     if (docs.length > 0 && !selectedDocId) setSelectedDocId(docs[0].id);
   }, [hsCode, targetMarket]);
 
-  const selectedDoc = checklist.find((d) => d.id === selectedDocId) ?? null;
+  // ── Reactive auto-status computation ──────────────────────────────────────
+
+  const statuses = useMemo(() => {
+    const computed: Record<string, DocStatus> = {};
+    for (const doc of checklist) {
+      const manual = manualStatuses[doc.id];
+      if (manual === "Filed") {
+        computed[doc.id] = "Filed";
+      } else {
+        computed[doc.id] = computeDocStatus(doc.id, exporter, consignee, quantity, unitPrice);
+      }
+    }
+    return computed;
+  }, [checklist, exporter, consignee, quantity, unitPrice, manualStatuses]);
+
+  const readyCount = Object.values(statuses).filter(s => s === "Ready" || s === "Filed").length;
+  const progressPercent = checklist.length > 0 ? Math.round((readyCount / checklist.length) * 100) : 0;
 
   const statusCounts = Object.values(statuses).reduce(
     (acc, s) => { acc[s] = (acc[s] || 0) + 1; return acc; },
-    {} as Record<DocStatus, number>
+    {} as Record<string, number>
   );
 
+  const selectedDoc = checklist.find((d) => d.id === selectedDocId) ?? null;
+
+  // ── Finalize button logic ─────────────────────────────────────────────────
+
+  const criticalDocs = checklist.filter(d => d.urgency === "critical");
+  const missingCritical = criticalDocs.filter(d => statuses[d.id] !== "Ready" && statuses[d.id] !== "Filed");
+  const canFinalize = !!shipmentId && missingCritical.length === 0;
+
+  const finalizeTooltip = useMemo(() => {
+    const reasons: string[] = [];
+    if (!shipmentId) reasons.push("No shipment linked — complete the full workflow first");
+    if (missingCritical.length > 0) {
+      reasons.push(`${missingCritical.length} critical doc(s) not Ready: ${missingCritical.map(d => d.abbreviation).join(", ")}`);
+    }
+    return reasons.join(" · ");
+  }, [shipmentId, missingCritical]);
+
   const handleStatusChange = async (docId: string, newStatus: DocStatus) => {
-    setStatuses((prev) => ({ ...prev, [docId]: newStatus }));
+    setManualStatuses((prev) => ({ ...prev, [docId]: newStatus }));
     setSavingDocId(docId);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -564,16 +653,12 @@ export default function DocumentationWorkshop() {
 
   const handleGeneratePDF = (doc: RequiredDocument) => {
     generateAndPrintDocument(doc.id, previewRef, doc.label);
-    handleStatusChange(doc.id, "Ready");
   };
 
   // ── Finalize & Export: mark shipment as "Filed" ───────────────────────────
 
   const handleFinalizeAndExport = async () => {
-    if (!shipmentId) {
-      toast({ title: "No shipment linked", description: "Please complete the full workflow (HS Navigator → LCE → here) to finalise.", variant: "destructive" });
-      return;
-    }
+    if (!shipmentId) return;
     setFilingShipment(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -586,8 +671,7 @@ export default function DocumentationWorkshop() {
 
       if (error) throw error;
 
-      // Mark all ready docs as Filed
-      const readyDocs = checklist.filter((d) => (statuses[d.id] ?? "Missing") === "Ready");
+      const readyDocs = checklist.filter((d) => statuses[d.id] === "Ready");
       for (const doc of readyDocs) {
         await handleStatusChange(doc.id, "Filed");
       }
@@ -642,6 +726,7 @@ export default function DocumentationWorkshop() {
           <div className="flex items-center gap-2 mb-3">
             <Building2 className="w-3.5 h-3.5 text-primary" />
             <span className="text-xs font-semibold text-foreground uppercase tracking-wide">Exporter Details</span>
+            <Badge variant="outline" className="text-[9px] border-primary/25 text-primary ml-auto">Saved to local storage</Badge>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Company Name" value={exporter.companyName} onChange={(v) => setExporter((p) => ({ ...p, companyName: v }))} placeholder="ARGANOR Export SARL" />
@@ -724,15 +809,33 @@ export default function DocumentationWorkshop() {
         <WorkflowStepper currentStep={3} />
 
         {/* Loading state */}
-        {dbLoading && (
+        {(dbLoading || recoveryLoading) && (
           <div className="rounded-xl border border-primary/20 bg-primary/6 px-4 py-3 flex items-center gap-3 animate-fade-in">
             <RefreshCw className="w-4 h-4 text-primary animate-spin shrink-0" />
-            <p className="text-xs text-muted-foreground">Loading shipment data from database…</p>
+            <p className="text-xs text-muted-foreground">Loading shipment data…</p>
+          </div>
+        )}
+
+        {/* Recovered shipment banner */}
+        {recovered && !dbLoading && !recoveryLoading && (
+          <div className="rounded-xl border border-risk-low/30 bg-risk-low/6 px-4 py-3 flex items-center gap-3 animate-fade-in">
+            <Database className="w-4 h-4 text-risk-low shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-foreground">
+                Shipment auto-recovered: <span className="text-primary">{recoveredShipment?.product_name || "Unnamed"}</span>
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Most recent Calculated shipment loaded automatically.
+              </p>
+            </div>
+            <Badge variant="outline" className="text-[10px] border-risk-low/40 text-risk-low gap-1 shrink-0">
+              <Database className="w-2.5 h-2.5" /> Recovered
+            </Badge>
           </div>
         )}
 
         {/* Context banner */}
-        {(hsCode || productName) && !dbLoading && (
+        {(hsCode || productName) && !dbLoading && !recoveryLoading && !recovered && (
           <div className="rounded-xl border border-primary/20 bg-primary/6 px-4 py-3 flex items-center gap-3 animate-fade-in">
             <CheckCircle2 className="w-5 h-5 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
@@ -779,24 +882,27 @@ export default function DocumentationWorkshop() {
           ))}
         </div>
 
-        {/* Progress summary */}
+        {/* Progress bar + summary */}
         {checklist.length > 0 && (
-          <div className="flex items-center gap-4 px-4 py-3 bg-card border border-border rounded-xl">
-            <span className="text-xs font-semibold text-foreground">Document Progress:</span>
-            {(["Missing", "Draft", "Ready", "Filed"] as DocStatus[]).map((s) => {
-              const n = statusCounts[s] || 0;
-              if (n === 0) return null;
-              const meta = DOC_STATUS_META[s];
-              return (
-                <span key={s} className={cn("text-xs font-semibold flex items-center gap-1", meta.color)}>
-                  <span className={cn("inline-block w-2 h-2 rounded-full", meta.bg, "border", meta.border)} />
-                  {n} {s}
-                </span>
-              );
-            })}
-            <span className="ml-auto text-xs text-muted-foreground">
-              {statusCounts["Ready"] + statusCounts["Filed"] || 0} / {checklist.length} complete
-            </span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-4 px-4 py-3 bg-card border border-border rounded-xl">
+              <span className="text-xs font-semibold text-foreground">Document Progress:</span>
+              {(["Missing", "Draft", "Ready", "Filed"] as DocStatus[]).map((s) => {
+                const n = statusCounts[s] || 0;
+                if (n === 0) return null;
+                const meta = DOC_STATUS_META[s];
+                return (
+                  <span key={s} className={cn("text-xs font-semibold flex items-center gap-1", meta.color)}>
+                    <span className={cn("inline-block w-2 h-2 rounded-full", meta.bg, "border", meta.border)} />
+                    {n} {s}
+                  </span>
+                );
+              })}
+              <span className="ml-auto text-xs font-semibold text-foreground">
+                {readyCount} / {checklist.length} complete
+              </span>
+            </div>
+            <Progress value={progressPercent} className="h-2" />
           </div>
         )}
 
@@ -937,27 +1043,10 @@ export default function DocumentationWorkshop() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-border text-muted-foreground text-xs"
-                      onClick={() => handleStatusChange(selectedDoc.id, "Draft")}
-                    >
-                      <Edit3 className="w-3.5 h-3.5" /> Save Draft
-                    </Button>
-
-                    <Button
-                      size="sm"
-                      variant="outline"
                       className="border-primary/30 text-primary hover:bg-primary/5 text-xs"
                       onClick={() => { setActiveTab("preview"); setTimeout(() => handleGeneratePDF(selectedDoc), 200); }}
                     >
                       <Printer className="w-3.5 h-3.5" /> Generate PDF
-                    </Button>
-
-                    <Button
-                      size="sm"
-                      className="bg-primary text-primary-foreground text-xs hover:bg-primary/90"
-                      onClick={() => handleStatusChange(selectedDoc.id, "Ready")}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Mark as Ready
                     </Button>
 
                     <Button
@@ -984,23 +1073,36 @@ export default function DocumentationWorkshop() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-foreground">Finalize & Export Shipment</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Marks the shipment as <strong className="text-foreground">Filed</strong> in the system and files all Ready documents with PortNet.
-                {!shipmentId && (
-                  <span className="text-warning font-medium ml-1">⚠ Link a shipment_id by completing the full workflow first.</span>
+                Marks the shipment as <strong className="text-foreground">Filed</strong> and files all Ready documents with PortNet.
+                {!canFinalize && finalizeTooltip && (
+                  <span className="text-warning font-medium ml-1">⚠ {finalizeTooltip}</span>
                 )}
               </p>
             </div>
-            <Button
-              onClick={handleFinalizeAndExport}
-              disabled={filingShipment || !shipmentId}
-              className="shrink-0 bg-success text-white hover:bg-success/90 h-10 text-sm font-semibold gap-2 shadow-md"
-            >
-              {filingShipment ? (
-                <><RefreshCw className="w-4 h-4 animate-spin" /> Filing…</>
-              ) : (
-                <><Send className="w-4 h-4" /> Finalize & Export</>
-              )}
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="shrink-0">
+                    <Button
+                      onClick={handleFinalizeAndExport}
+                      disabled={filingShipment || !canFinalize}
+                      className="shrink-0 bg-success text-white hover:bg-success/90 h-10 text-sm font-semibold gap-2 shadow-md"
+                    >
+                      {filingShipment ? (
+                        <><RefreshCw className="w-4 h-4 animate-spin" /> Filing…</>
+                      ) : (
+                        <><Send className="w-4 h-4" /> Finalize & Export</>
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {!canFinalize && (
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    {finalizeTooltip}
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           </div>
         )}
 

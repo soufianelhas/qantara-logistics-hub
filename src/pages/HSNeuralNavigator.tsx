@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { WorkflowStepper } from "@/components/WorkflowStepper";
@@ -65,10 +65,18 @@ export default function HSNeuralNavigator() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const [stage, setStage] = useState<Stage>("category");
-  const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string>("");
-  const [productDescription, setProductDescription] = useState<string>("");
+  const [stage, setStage] = useState<Stage>(() => {
+    try { return (localStorage.getItem("qantara_hs_stage") as Stage) || "category"; } catch { return "category"; }
+  });
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => {
+    try { return localStorage.getItem("qantara_hs_category") || ""; } catch { return ""; }
+  });
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>(() => {
+    try { return localStorage.getItem("qantara_hs_subcategory") || ""; } catch { return ""; }
+  });
+  const [productDescription, setProductDescription] = useState<string>(() => {
+    try { return localStorage.getItem("qantara_hs_description") || ""; } catch { return ""; }
+  });
   const [isClassifying, setIsClassifying] = useState(false);
   const [results, setResults] = useState<AIResult[]>([]);
   const [selectedResult, setSelectedResult] = useState<AIResult | null>(null);
@@ -77,6 +85,12 @@ export default function HSNeuralNavigator() {
   // Persistent shipment state
   const [shipmentId, setShipmentId] = useState<string | null>(null);
   const [isCreatingShipment, setIsCreatingShipment] = useState(false);
+
+  // Save form state to localStorage
+  useEffect(() => { try { localStorage.setItem("qantara_hs_stage", stage); } catch {} }, [stage]);
+  useEffect(() => { try { localStorage.setItem("qantara_hs_category", selectedCategory); } catch {} }, [selectedCategory]);
+  useEffect(() => { try { localStorage.setItem("qantara_hs_subcategory", selectedSubcategory); } catch {} }, [selectedSubcategory]);
+  useEffect(() => { try { localStorage.setItem("qantara_hs_description", productDescription); } catch {} }, [productDescription]);
 
   const currentCategory = CATEGORIES.find((c) => c.id === selectedCategory);
 
@@ -203,6 +217,12 @@ export default function HSNeuralNavigator() {
     setStage("category"); setSelectedCategory(""); setSelectedSubcategory("");
     setProductDescription(""); setResults([]); setSelectedResult(null);
     setShipmentId(null); setClarification(null);
+    try {
+      localStorage.removeItem("qantara_hs_stage");
+      localStorage.removeItem("qantara_hs_category");
+      localStorage.removeItem("qantara_hs_subcategory");
+      localStorage.removeItem("qantara_hs_description");
+    } catch {}
   };
 
   // ── Stage: Category ─────────────────────────────────────────────────────
