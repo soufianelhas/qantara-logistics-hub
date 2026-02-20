@@ -8,7 +8,9 @@ import LandedCostEngine from "./pages/LandedCostEngine";
 import HSNeuralNavigator from "./pages/HSNeuralNavigator";
 import AuthenticityStudio from "./pages/AuthenticityStudio";
 import DocumentationWorkshop from "./pages/DocumentationWorkshop";
+import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import { AuthGuard } from "./components/AuthGuard";
 
 const queryClient = new QueryClient();
 
@@ -19,16 +21,16 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/landed-cost" element={<LandedCostEngine />} />
-          <Route path="/hs-navigator" element={<HSNeuralNavigator />} />
-          <Route path="/authenticity-studio" element={<AuthenticityStudio />} />
-          <Route path="/documentation-workshop" element={<DocumentationWorkshop />} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
+          <Route path="/landed-cost" element={<AuthGuard><LandedCostEngine /></AuthGuard>} />
+          <Route path="/hs-navigator" element={<AuthGuard><HSNeuralNavigator /></AuthGuard>} />
+          <Route path="/authenticity-studio" element={<AuthGuard><AuthenticityStudio /></AuthGuard>} />
+          <Route path="/documentation-workshop" element={<AuthGuard><DocumentationWorkshop /></AuthGuard>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );
-
 export default App;

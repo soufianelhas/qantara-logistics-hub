@@ -1,5 +1,5 @@
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Calculator,
@@ -9,9 +9,11 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
+  LogOut,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 const workflowItems = [
   { title: "HS Neural-Navigator",     url: "/hs-navigator",            icon: Brain,       step: 1 },
@@ -26,6 +28,12 @@ const otherItems = [
 
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth");
+  };
   const location = useLocation();
 
   return (
@@ -164,7 +172,14 @@ export function AppSidebar() {
 
       {/* Bottom section */}
       {!collapsed && (
-        <div className="px-4 py-4 border-t border-navy-light/30 animate-fade-in">
+        <div className="px-4 py-4 border-t border-navy-light/30 animate-fade-in space-y-3">
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-navy-light/40 transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="text-xs">Sign Out</span>
+          </button>
           <p className="text-[10px] text-sidebar-foreground/40 uppercase tracking-widest">
             Morocco Export Hub
           </p>
