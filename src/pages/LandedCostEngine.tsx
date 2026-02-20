@@ -22,6 +22,8 @@ import {
   FileText,
   ArrowLeft,
   ArrowRight,
+  Thermometer,
+  Eye,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -29,10 +31,27 @@ import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface PortWeather {
+  port: string;
+  portName: string;
+  windSpeedKnots: number;
+  visibility: number;
+  hasStormAlert: boolean;
+  weatherDescription: string;
+  temperature: number;
+}
+
 interface EFactorData {
   portCongestion: "low" | "medium" | "high" | "critical";
   stormRisk: "none" | "low" | "moderate" | "severe";
   multiplier: number;
+  ports: PortWeather[];
+  breakdown: {
+    base: number;
+    windContribution: number;
+    congestionContribution: number;
+    totalDelayDays: number;
+  };
 }
 
 interface CalculationResult {
@@ -43,7 +62,7 @@ interface CalculationResult {
   difference: number;
 }
 
-// ── E-Factor simulation ───────────────────────────────────────────────────────
+// ── Styling maps ──────────────────────────────────────────────────────────────
 
 const PORT_CONGESTION = {
   low:      { label: "Low",      color: "text-risk-low",    bg: "bg-risk-low/10",    contrib: 0.00 },
@@ -53,24 +72,13 @@ const PORT_CONGESTION = {
 };
 
 const STORM_RISK = {
-  none:     { label: "None",     color: "text-risk-low",    bg: "bg-risk-low/10",    contrib: 0.00 },
-  low:      { label: "Low",      color: "text-risk-low",    bg: "bg-risk-low/10",    contrib: 0.02 },
-  moderate: { label: "Moderate", color: "text-risk-medium", bg: "bg-risk-medium/10", contrib: 0.08 },
-  severe:   { label: "Severe",   color: "text-risk-high",   bg: "bg-risk-high/10",   contrib: 0.18 },
+  none:     { label: "None",     color: "text-risk-low",    bg: "bg-risk-low/10" },
+  low:      { label: "Low",      color: "text-risk-low",    bg: "bg-risk-low/10" },
+  moderate: { label: "Moderate", color: "text-risk-medium", bg: "bg-risk-medium/10" },
+  severe:   { label: "Severe",   color: "text-risk-high",   bg: "bg-risk-high/10" },
 };
 
 const E_FACTOR_RISK_THRESHOLD = 1.15;
-
-function simulateEFactor(): EFactorData {
-  const congestionKeys = ["low", "medium", "high", "critical"] as const;
-  const stormKeys = ["none", "low", "moderate", "severe"] as const;
-  const portCongestion = congestionKeys[Math.floor(Math.random() * congestionKeys.length)];
-  const stormRisk = stormKeys[Math.floor(Math.random() * stormKeys.length)];
-  const multiplier = parseFloat(
-    (1 + PORT_CONGESTION[portCongestion].contrib + STORM_RISK[stormRisk].contrib).toFixed(4)
-  );
-  return { portCongestion, stormRisk, multiplier };
-}
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
@@ -92,22 +100,20 @@ export default function LandedCostEngine() {
   const paramConfidence = searchParams.get("confidence") || "";
   const paramShipmentId = searchParams.get("shipment_id") || null;
 
-  // User-editable fields (only V, F, I unlocked when coming from classifier)
+  // User-editable fields
   const [productName,  setProductName]  = useState(paramProduct);
   const [hsCode,       setHsCode]       = useState(paramHsCode);
-  const [productValue, setProductValue] = useState("");  // V
-  const [freight,      setFreight]      = useState("");  // F
-  const [insurance,    setInsurance]    = useState("");  // I
-  // D and T are pre-filled from TARIC when fromClassifier
-  const [duty,         setDuty]         = useState(fromClassifier ? String(paramDuty) : "");   // D
-  const [taxes,        setTaxes]        = useState(fromClassifier ? String(paramTax)  : "");   // T
+  const [productValue, setProductValue] = useState("");
+  const [freight,      setFreight]      = useState("");
+  const [insurance,    setInsurance]    = useState("");
+  const [duty,         setDuty]         = useState(fromClassifier ? String(paramDuty) : "");
+  const [taxes,        setTaxes]        = useState(fromClassifier ? String(paramTax)  : "");
 
   const [eFactor,        setEFactor]        = useState<EFactorData | null>(null);
   const [eFactorLoading, setEFactorLoading] = useState(false);
   const [result,         setResult]         = useState<CalculationResult | null>(null);
   const [finalizing,     setFinalizing]     = useState(false);
 
-  // Re-sync if search params change (e.g., browser back/forward)
   useEffect(() => {
     setProductName(paramProduct);
     setHsCode(paramHsCode);
@@ -121,16 +127,30 @@ export default function LandedCostEngine() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramHsCode]);
 
-  // ── E-Factor ──────────────────────────────────────────────────────────────
+  // ── E-Factor — Real-Time Weather ──────────────────────────────────────────
 
-  const handleSimulateEFactor = async () => {
+  const handleFetchEFactor = async () => {
     setEFactorLoading(true);
     setEFactor(null);
-    await new Promise((r) => setTimeout(r, 1400));
-    const data = simulateEFactor();
-    setEFactor(data);
-    setEFactorLoading(false);
-    toast({ title: "E-Factor Assessed", description: `Multiplier: ×${data.multiplier}` });
+
+    try {
+      const { data, error } = await supabase.functions.invoke("weather-efactor");
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setEFactor(data as EFactorData);
+      toast({
+        title: "E-Factor Assessed — Live Data",
+        description: `Multiplier: ×${data.multiplier} (${data.ports?.length || 0} ports queried)`,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Weather fetch failed";
+      toast({ title: "E-Factor Error", description: msg, variant: "destructive" });
+      console.error("E-Factor fetch error:", err);
+    } finally {
+      setEFactorLoading(false);
+    }
   };
 
   // ── Calculate ─────────────────────────────────────────────────────────────
@@ -142,7 +162,6 @@ export default function LandedCostEngine() {
     const d = parseFloat(duty)          || 0;
     const t = parseFloat(taxes)         || 0;
 
-    // D and T are % of V when coming from TARIC (convert to absolute values)
     const dAbsolute = fromClassifier ? (v * d) / 100 : d;
     const tAbsolute = fromClassifier ? (v * t) / 100 : t;
 
@@ -159,12 +178,10 @@ export default function LandedCostEngine() {
       difference: realistic - optimistic,
     };
     setResult(calcResult);
-
-    // Write E-Factor to localStorage for Authenticity Studio to read
     localStorage.setItem("qantara_efactor", String(e));
   };
 
-  // ── Finalize & navigate to Documentation Workshop ─────────────────────────
+  // ── Finalize & navigate ─────────────────────────────────────────────────
 
   const handleFinalizeAndGenerateDocs = async () => {
     if (!result) return;
@@ -174,7 +191,6 @@ export default function LandedCostEngine() {
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user && paramShipmentId) {
-        // Upsert (UPDATE) the existing draft shipment
         const { error } = await supabase
           .from("shipments")
           .update({
@@ -191,11 +207,9 @@ export default function LandedCostEngine() {
             status:              "Calculated",
           })
           .eq("id", paramShipmentId);
-
         if (error) throw error;
         toast({ title: "Costs finalized!", description: "Shipment updated to Calculated status." });
       } else if (user && !paramShipmentId) {
-        // No existing shipment — insert a new one
         const { data: newShipment, error } = await supabase
           .from("shipments")
           .insert({
@@ -214,15 +228,10 @@ export default function LandedCostEngine() {
           })
           .select("id")
           .single();
-
         if (error) throw error;
-
         const params = new URLSearchParams({
-          hs_code:       hsCode,
-          product_name:  productName || paramProduct,
-          product_value: String(result.v),
-          freight:       String(result.f),
-          from:          "lce",
+          hs_code: hsCode, product_name: productName || paramProduct,
+          product_value: String(result.v), freight: String(result.f), from: "lce",
         });
         if (newShipment?.id) params.set("shipment_id", newShipment.id);
         navigate(`/documentation-workshop?${params.toString()}`);
@@ -235,20 +244,14 @@ export default function LandedCostEngine() {
       return;
     }
 
-    // Navigate to Documentation Workshop
     const params = new URLSearchParams({
-      hs_code:       hsCode,
-      product_name:  productName || paramProduct,
-      product_value: String(result.v),
-      freight:       String(result.f),
-      from:          "lce",
+      hs_code: hsCode, product_name: productName || paramProduct,
+      product_value: String(result.v), freight: String(result.f), from: "lce",
     });
     if (paramShipmentId) params.set("shipment_id", paramShipmentId);
     navigate(`/documentation-workshop?${params.toString()}`);
     setFinalizing(false);
   };
-
-  // ── Form reset ────────────────────────────────────────────────────────────
 
   const handleReset = () => {
     setProductValue(""); setFreight(""); setInsurance("");
@@ -259,54 +262,36 @@ export default function LandedCostEngine() {
   const congestionInfo = eFactor ? PORT_CONGESTION[eFactor.portCongestion] : null;
   const stormInfo      = eFactor ? STORM_RISK[eFactor.stormRisk]           : null;
 
-  const workflowStep: 1 | 2 | 3 = 2;
-
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <AppLayout title="Landed Cost Engine" subtitle="V + F + I + D + T × E-Factor">
       <div className="max-w-5xl mx-auto space-y-6">
 
-        {/* ── Workflow Stepper — always visible ──────────────────────── */}
-        <WorkflowStepper currentStep={workflowStep} />
+        <WorkflowStepper currentStep={2} />
 
-        {/* ── Provenance banner (from HS Navigator) ──────────────────────── */}
+        {/* Provenance banner */}
         {fromClassifier && (
           <div className="rounded-xl border border-primary/20 bg-primary/6 px-4 py-3.5 flex items-center gap-3 animate-fade-in">
             <div className="w-8 h-8 rounded-lg bg-primary/15 border border-primary/20 flex items-center justify-center shrink-0">
               <Brain className="w-4 h-4 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-foreground">
-                Data transferred from HS Neural-Navigator
-              </p>
+              <p className="text-xs font-semibold text-foreground">Data transferred from HS Neural-Navigator</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                HS code{" "}
-                <span className="font-mono font-bold text-foreground">{paramHsCode}</span>
+                HS code <span className="font-mono font-bold text-foreground">{paramHsCode}</span>
                 {" · "}Duty <strong className="text-foreground">{paramDuty}%</strong>
                 {" · "}Tax <strong className="text-foreground">{paramTax}%</strong>
-                {paramConfidence && (
-                  <> · Match confidence <strong className="text-foreground">{paramConfidence}%</strong></>
-                )}
-                {paramShipmentId && (
-                  <> · <span className="text-risk-low font-medium">✓ Shipment ID linked</span></>
-                )}
+                {paramConfidence && <> · Match confidence <strong className="text-foreground">{paramConfidence}%</strong></>}
+                {paramShipmentId && <> · <span className="text-risk-low font-medium">✓ Shipment ID linked</span></>}
               </p>
             </div>
-            <Badge variant="outline" className="text-[10px] border-primary/30 text-primary shrink-0">
-              Auto-filled
-            </Badge>
-            <button
-              onClick={() => navigate("/hs-navigator")}
-              className="ml-2 shrink-0 text-[11px] text-primary hover:underline flex items-center gap-1"
-            >
-              <ArrowLeft className="w-3 h-3" />
-              Back
+            <Badge variant="outline" className="text-[10px] border-primary/30 text-primary shrink-0">Auto-filled</Badge>
+            <button onClick={() => navigate("/hs-navigator")} className="ml-2 shrink-0 text-[11px] text-primary hover:underline flex items-center gap-1">
+              <ArrowLeft className="w-3 h-3" /> Back
             </button>
           </div>
         )}
 
-        {/* ── Cost Inputs ─────────────────────────────────────────────────── */}
+        {/* Cost Inputs */}
         <Card className="border-border shadow-card">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -322,90 +307,30 @@ export default function LandedCostEngine() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            {/* Product meta */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Product Name
-                </Label>
-                <Input
-                  placeholder="e.g. Argan Oil — 250ml"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                />
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Product Name</Label>
+                <Input placeholder="e.g. Argan Oil — 250ml" value={productName} onChange={(e) => setProductName(e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  HS Code
-                </Label>
-                <Input
-                  placeholder="e.g. 1515.30"
-                  value={hsCode}
-                  onChange={(e) => setHsCode(e.target.value)}
-                  readOnly={fromClassifier}
-                  className={cn(fromClassifier && "bg-muted/50 text-muted-foreground cursor-default")}
-                />
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">HS Code</Label>
+                <Input placeholder="e.g. 1515.30" value={hsCode} onChange={(e) => setHsCode(e.target.value)}
+                  readOnly={fromClassifier} className={cn(fromClassifier && "bg-muted/50 text-muted-foreground cursor-default")} />
               </div>
             </div>
 
-            {/* VFIDT fields grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-
-              {/* V — Product Value (USER INPUT) */}
-              <CostField
-                label="V — Product Value"
-                placeholder="0.00"
-                value={productValue}
-                onChange={setProductValue}
-                userInput
-              />
-
-              {/* F — Freight (USER INPUT) */}
-              <CostField
-                label="F — Freight Cost"
-                placeholder="0.00"
-                value={freight}
-                onChange={setFreight}
-                userInput
-              />
-
-              {/* I — Insurance (USER INPUT) */}
-              <CostField
-                label="I — Insurance"
-                placeholder="0.00"
-                value={insurance}
-                onChange={setInsurance}
-                userInput
-              />
-
-              {/* D — Duty (auto-filled from TARIC when compound) */}
-              <CostField
-                label="D — Duty Rate"
-                placeholder="0.00"
-                value={duty}
-                onChange={setDuty}
-                locked={fromClassifier}
-                suffix={fromClassifier ? `% of V` : undefined}
-                hint={fromClassifier ? "TARIC rate" : undefined}
-              />
-
-              {/* T — Tax (auto-filled from TARIC when compound) */}
-              <CostField
-                label="T — Tax Rate"
-                placeholder="0.00"
-                value={taxes}
-                onChange={setTaxes}
-                locked={fromClassifier}
-                suffix={fromClassifier ? `% of V` : undefined}
-                hint={fromClassifier ? "TARIC rate" : undefined}
-              />
+              <CostField label="V — Product Value" placeholder="0.00" value={productValue} onChange={setProductValue} userInput />
+              <CostField label="F — Freight Cost" placeholder="0.00" value={freight} onChange={setFreight} userInput />
+              <CostField label="I — Insurance" placeholder="0.00" value={insurance} onChange={setInsurance} userInput />
+              <CostField label="D — Duty Rate" placeholder="0.00" value={duty} onChange={setDuty} locked={fromClassifier}
+                suffix={fromClassifier ? "% of V" : undefined} hint={fromClassifier ? "TARIC rate" : undefined} />
+              <CostField label="T — Tax Rate" placeholder="0.00" value={taxes} onChange={setTaxes} locked={fromClassifier}
+                suffix={fromClassifier ? "% of V" : undefined} hint={fromClassifier ? "TARIC rate" : undefined} />
             </div>
 
-            {/* Formula banner */}
             <div className="rounded-lg border border-primary/15 bg-primary/5 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-              <span className="font-mono text-xs text-primary font-semibold">
-                Total = V + F + I + D + T
-              </span>
+              <span className="font-mono text-xs text-primary font-semibold">Total = V + F + I + D + T</span>
               <span className="text-muted-foreground text-xs">×</span>
               <span className="font-mono text-xs text-foreground font-semibold">E-Factor</span>
               {fromClassifier && (
@@ -417,7 +342,7 @@ export default function LandedCostEngine() {
           </CardContent>
         </Card>
 
-        {/* ── E-Factor ────────────────────────────────────────────────────── */}
+        {/* E-Factor — Live Weather */}
         <Card className="border-border shadow-card">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -426,79 +351,104 @@ export default function LandedCostEngine() {
               </div>
               E-Factor — Risk Multiplier
               <Badge variant="outline" className="ml-auto text-xs border-border">
-                PortNet + OpenWeather (simulated)
+                OpenWeather Live
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Simulates real-time port congestion from <strong className="text-foreground">PortNet Morocco</strong> and
-              storm alerts from <strong className="text-foreground">OpenWeather API</strong> to compute a risk
-              multiplier on your total landed cost.
+              Fetches <strong className="text-foreground">real-time weather data</strong> for Tanger Med, Casablanca & Agadir via OpenWeather API.
+              Wind speed &gt; 25 knots adds +0.2 (port shutdown risk). Delay days add +0.05 each.
             </p>
             <Button
-              onClick={handleSimulateEFactor}
+              onClick={handleFetchEFactor}
               disabled={eFactorLoading}
               variant="outline"
               className="border-primary/30 text-primary hover:bg-primary/5"
             >
               {eFactorLoading ? (
-                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Querying PortNet & OpenWeather…</>
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Querying OpenWeather API…</>
               ) : (
-                <><Ship className="w-3.5 h-3.5" /> Simulate E-Factor Assessment</>
+                <><Ship className="w-3.5 h-3.5" /> Fetch Live E-Factor</>
               )}
             </Button>
 
-            {eFactor && congestionInfo && stormInfo && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fade-in">
-                <div className={cn("rounded-lg border p-4 space-y-2 border-border", congestionInfo.bg)}>
-                  <div className="flex items-center gap-2">
-                    <Anchor className={cn("w-4 h-4", congestionInfo.color)} />
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Port Congestion</span>
-                  </div>
-                  <p className={cn("text-lg font-bold", congestionInfo.color)}>{congestionInfo.label}</p>
-                  <p className="text-xs text-muted-foreground">Tanger Med / Casablanca</p>
+            {/* Port weather cards */}
+            {eFactor && eFactor.ports && eFactor.ports.length > 0 && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {eFactor.ports.map((p) => (
+                    <div key={p.port} className="rounded-lg border border-border bg-card p-3 space-y-2">
+                      <p className="text-xs font-semibold text-foreground">{p.portName}</p>
+                      <div className="space-y-1.5 text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-muted-foreground"><Wind className="w-3 h-3" /> Wind</span>
+                          <span className={cn("font-mono font-bold", p.windSpeedKnots > 25 ? "text-risk-high" : p.windSpeedKnots > 18 ? "text-warning" : "text-risk-low")}>
+                            {p.windSpeedKnots} kn
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-muted-foreground"><Eye className="w-3 h-3" /> Visibility</span>
+                          <span className="font-mono text-foreground">{(p.visibility / 1000).toFixed(1)} km</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-muted-foreground"><Thermometer className="w-3 h-3" /> Temp</span>
+                          <span className="font-mono text-foreground">{p.temperature.toFixed(1)}°C</span>
+                        </div>
+                        <p className="text-muted-foreground capitalize">{p.weatherDescription}</p>
+                        {p.hasStormAlert && (
+                          <Badge variant="outline" className="text-[9px] border-risk-high/30 text-risk-high bg-risk-high/10">⚠ Storm Alert</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className={cn("rounded-lg border p-4 space-y-2 border-border", stormInfo.bg)}>
-                  <div className="flex items-center gap-2">
-                    <CloudLightning className={cn("w-4 h-4", stormInfo.color)} />
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Storm Risk</span>
+
+                {/* Summary cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className={cn("rounded-lg border p-4 space-y-2 border-border", congestionInfo?.bg)}>
+                    <div className="flex items-center gap-2">
+                      <Anchor className={cn("w-4 h-4", congestionInfo?.color)} />
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Port Congestion</span>
+                    </div>
+                    <p className={cn("text-lg font-bold", congestionInfo?.color)}>{congestionInfo?.label}</p>
+                    <p className="text-xs text-muted-foreground">Est. delay: {eFactor.breakdown.totalDelayDays} days</p>
                   </div>
-                  <p className={cn("text-lg font-bold", stormInfo.color)}>{stormInfo.label}</p>
-                  <p className="text-xs text-muted-foreground">Atlantic weather alert</p>
-                </div>
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-primary" />
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">E-Factor</span>
+                  <div className={cn("rounded-lg border p-4 space-y-2 border-border", stormInfo?.bg)}>
+                    <div className="flex items-center gap-2">
+                      <CloudLightning className={cn("w-4 h-4", stormInfo?.color)} />
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Storm Risk</span>
+                    </div>
+                    <p className={cn("text-lg font-bold", stormInfo?.color)}>{stormInfo?.label}</p>
+                    <p className="text-xs text-muted-foreground">Wind contrib: +{(eFactor.breakdown.windContribution * 100).toFixed(1)}%</p>
                   </div>
-                  <p className="text-2xl font-bold text-primary font-mono">×{eFactor.multiplier.toFixed(4)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Premium: +{((eFactor.multiplier - 1) * 100).toFixed(1)}%
-                  </p>
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">E-Factor</span>
+                    </div>
+                    <p className="text-2xl font-bold text-primary font-mono">×{eFactor.multiplier.toFixed(4)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Premium: +{((eFactor.multiplier - 1) * 100).toFixed(1)}%
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* ── Action Row ───────────────────────────────────────────────────── */}
+        {/* Action Row */}
         <div className="flex items-center gap-3 flex-wrap">
-          <Button
-            onClick={handleCalculate}
-            disabled={!productValue}
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-          >
-            <Calculator className="w-4 h-4" />
-            Calculate Landed Cost
+          <Button onClick={handleCalculate} disabled={!productValue} className="bg-primary text-primary-foreground hover:bg-primary/90">
+            <Calculator className="w-4 h-4" /> Calculate Landed Cost
           </Button>
           <Button onClick={handleReset} variant="ghost" className="text-muted-foreground hover:text-foreground ml-auto">
-            <RefreshCw className="w-4 h-4" />
-            Reset
+            <RefreshCw className="w-4 h-4" /> Reset
           </Button>
         </div>
 
-        {/* ── Comparison Table ─────────────────────────────────────────────── */}
+        {/* Comparison Table */}
         {result && (
           <Card className="border-border shadow-card animate-fade-in">
             <CardHeader className="pb-4">
@@ -508,9 +458,7 @@ export default function LandedCostEngine() {
                 </div>
                 Cost Breakdown — Optimistic vs Realistic
                 {productName && (
-                  <Badge variant="outline" className="ml-auto text-xs border-border font-normal">
-                    {productName}
-                  </Badge>
+                  <Badge variant="outline" className="ml-auto text-xs border-border font-normal">{productName}</Badge>
                 )}
               </CardTitle>
             </CardHeader>
@@ -567,7 +515,7 @@ export default function LandedCostEngine() {
                       </span>
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Accounts for port congestion delays and weather disruptions at Moroccan export terminals.
+                      Based on live weather conditions at Moroccan export terminals.
                     </p>
                   </div>
                 </div>
@@ -577,7 +525,7 @@ export default function LandedCostEngine() {
                 <div className="mt-4 rounded-lg border border-risk-low/25 bg-risk-low/8 px-4 py-3 flex items-center gap-3">
                   <Wind className="w-4 h-4 text-risk-low" />
                   <p className="text-xs text-muted-foreground">
-                    No E-Factor applied. Run the assessment above for a realistic cost projection.
+                    No E-Factor premium. Run the live weather assessment above for a realistic cost projection.
                   </p>
                 </div>
               )}
@@ -585,7 +533,7 @@ export default function LandedCostEngine() {
           </Card>
         )}
 
-        {/* ── Finalize CTA — appears after calculation ──────────────────────── */}
+        {/* Finalize CTA */}
         {result && (
           <div className="animate-fade-in rounded-xl border-2 border-primary bg-primary/8 p-6 space-y-4">
             <div className="flex items-start gap-4">
@@ -593,36 +541,22 @@ export default function LandedCostEngine() {
                 <FileText className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm font-bold text-foreground">
-                  Costs Calculated — Ready to Generate Documents
-                </p>
+                <p className="text-sm font-bold text-foreground">Costs Calculated — Ready to Generate Documents</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Realistic cost:{" "}
-                  <span className="font-mono font-bold text-foreground">{fmt(result.realistic)}</span>
+                  Realistic cost: <span className="font-mono font-bold text-foreground">{fmt(result.realistic)}</span>
                   {result.eFactor > E_FACTOR_RISK_THRESHOLD && (
-                    <span className="ml-2 text-warning font-semibold">
-                      ⚠ High E-Factor risk
-                    </span>
+                    <span className="ml-2 text-warning font-semibold">⚠ High E-Factor risk</span>
                   )}
-                  {paramShipmentId && (
-                    <span className="ml-2 text-risk-low font-medium">· Shipment will be updated</span>
-                  )}
+                  {paramShipmentId && <span className="ml-2 text-risk-low font-medium">· Shipment will be updated</span>}
                 </p>
               </div>
             </div>
-            <Button
-              onClick={handleFinalizeAndGenerateDocs}
-              disabled={finalizing}
-              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold h-12 shadow-md"
-              size="lg"
-            >
+            <Button onClick={handleFinalizeAndGenerateDocs} disabled={finalizing}
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold h-12 shadow-md" size="lg">
               {finalizing ? (
                 <><RefreshCw className="w-4 h-4 animate-spin" /> Saving & Redirecting…</>
               ) : (
-                <>
-                  Finalize Costs & Generate Documents
-                  <ArrowRight className="w-5 h-5" />
-                </>
+                <>Finalize Costs & Generate Documents <ArrowRight className="w-5 h-5" /></>
               )}
             </Button>
             <p className="text-[11px] text-muted-foreground text-center">
@@ -653,42 +587,20 @@ function CostField({ label, placeholder, value, onChange, locked, userInput, suf
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
-        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide leading-tight">
-          {label}
-        </Label>
-        {locked && (
-          <Lock className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />
-        )}
+        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide leading-tight">{label}</Label>
+        {locked && <Lock className="w-2.5 h-2.5 text-muted-foreground/60 shrink-0" />}
         {userInput && (
-          <span className="text-[9px] uppercase tracking-wide text-primary font-semibold bg-primary/10 px-1.5 py-0.5 rounded-sm">
-            Input
-          </span>
+          <span className="text-[9px] uppercase tracking-wide text-primary font-semibold bg-primary/10 px-1.5 py-0.5 rounded-sm">Input</span>
         )}
       </div>
       <div className="relative">
         {!suffix && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>}
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          readOnly={locked}
-          className={cn(
-            !suffix && "pl-6",
-            locked && "bg-muted/50 cursor-default border-dashed text-muted-foreground"
-          )}
-        />
-        {suffix && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
-            {suffix}
-          </span>
-        )}
+        <Input type="number" min="0" step="0.01" placeholder={placeholder} value={value}
+          onChange={(e) => onChange(e.target.value)} readOnly={locked}
+          className={cn(!suffix && "pl-6", locked && "bg-muted/50 cursor-default border-dashed text-muted-foreground")} />
+        {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">{suffix}</span>}
       </div>
-      {hint && (
-        <p className="text-[10px] text-primary/70 font-medium">{hint}</p>
-      )}
+      {hint && <p className="text-[10px] text-primary/70 font-medium">{hint}</p>}
     </div>
   );
 }
