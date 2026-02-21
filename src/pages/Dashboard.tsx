@@ -316,7 +316,7 @@ export default function Dashboard() {
               {shipments.slice(0, 10).map((s) => {
                 const totalCost = s.raw_cost_v + s.freight + s.insurance + s.duty + s.taxes;
                 return (
-                  <div key={s.id} className="px-5 py-4 hover:bg-muted/30 transition-colors">
+                  <div key={s.id} className="px-5 py-4 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => navigate(`/shipments/${s.id}`)}>
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">

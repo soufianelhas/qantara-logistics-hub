@@ -25,6 +25,12 @@ import {
   Thermometer,
   Eye,
   Database,
+  Truck,
+  Plane,
+  TrainFront,
+  Leaf,
+  Sparkles,
+  Search,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -63,6 +69,19 @@ interface CalculationResult {
   realistic: number;
   difference: number;
 }
+
+interface LogisticsRoute {
+  mode: "Sea" | "Air" | "Road" | "Rail";
+  provider: string;
+  base_cost: number;
+  transit_days: number;
+  reliability_score: number;
+  carbon_footprint: number;
+  currency: string;
+}
+
+const MODE_ICON: Record<string, typeof Ship> = { Sea: Ship, Air: Plane, Road: Truck, Rail: TrainFront };
+const MODE_ORDER = ["Sea", "Air", "Road", "Rail"];
 
 // ── Styling maps ──────────────────────────────────────────────────────────────
 
@@ -125,6 +144,12 @@ export default function LandedCostEngine() {
   const [result,         setResult]         = useState<CalculationResult | null>(null);
   const [finalizing,     setFinalizing]     = useState(false);
 
+  // Route Discovery state
+  const [routeDiscoveryOpen, setRouteDiscoveryOpen] = useState(false);
+  const [logisticsRates, setLogisticsRates] = useState<LogisticsRoute[]>([]);
+  const [routesLoading, setRoutesLoading] = useState(false);
+  const [selectedRoute, setSelectedRoute] = useState<LogisticsRoute | null>(null);
+  const [strategicAdvice, setStrategicAdvice] = useState("");
   // Save form state to localStorage
   useEffect(() => { try { localStorage.setItem("qantara_lce_productName", productName); } catch {} }, [productName]);
   useEffect(() => { try { localStorage.setItem("qantara_lce_hsCode", hsCode); } catch {} }, [hsCode]);
@@ -281,6 +306,34 @@ export default function LandedCostEngine() {
     setProductValue(""); setFreight(""); setInsurance("");
     if (!fromClassifier) { setDuty(""); setTaxes(""); setHsCode(""); setProductName(""); }
     setEFactor(null); setResult(null);
+    setLogisticsRates([]); setSelectedRoute(null); setStrategicAdvice(""); setRouteDiscoveryOpen(false);
+  };
+
+  const handleFetchRoutes = async () => {
+    setRoutesLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("fetch-logistics-rates", {
+        body: { origin_port: "Casablanca", destination_market: "EU", e_factor: eFactor?.multiplier ?? 1.0 },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setLogisticsRates(data.routes || []);
+      setStrategicAdvice(data.strategic_advice || "");
+      setRouteDiscoveryOpen(true);
+      toast({ title: "Routes loaded", description: `${data.routes?.length || 0} transport options found` });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch routes";
+      toast({ title: "Route Discovery Error", description: msg, variant: "destructive" });
+    } finally {
+      setRoutesLoading(false);
+    }
+  };
+
+  const handleSelectRoute = (route: LogisticsRoute) => {
+    setSelectedRoute(route);
+    setFreight(String(route.base_cost));
+    toast({ title: "Route selected", description: `${route.provider} — $${route.base_cost} freight applied` });
+    if (result) handleCalculate();
   };
 
   const congestionInfo = eFactor ? PORT_CONGESTION[eFactor.portCongestion] : null;
@@ -379,6 +432,106 @@ export default function LandedCostEngine() {
                 </Badge>
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Route Discovery */}
+        <Card className="border-border shadow-card">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <Search className="w-3.5 h-3.5 text-primary" />
+              </div>
+              Route Discovery
+              {selectedRoute && (
+                <Badge variant="outline" className="ml-auto text-[10px] border-success/30 text-success gap-1">
+                  <CheckCircle2 className="w-2.5 h-2.5" /> {selectedRoute.provider}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Compare multi-modal transport options. Selecting a route auto-fills the <strong className="text-foreground">Freight (F)</strong> cost.
+            </p>
+            <Button onClick={handleFetchRoutes} disabled={routesLoading} variant="outline" className="border-primary/30 text-primary hover:bg-primary/5">
+              {routesLoading ? (
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Loading Routes…</>
+              ) : (
+                <><Search className="w-3.5 h-3.5" /> Find Routes</>
+              )}
+            </Button>
+
+            {routeDiscoveryOpen && logisticsRates.length > 0 && (
+              <div className="space-y-4 animate-fade-in">
+                {/* Strategic Advice */}
+                {strategicAdvice && (
+                  <div className="rounded-lg border-2 border-primary/25 bg-primary/5 px-4 py-3 flex items-start gap-3">
+                    <Sparkles className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs font-semibold text-foreground mb-1">Strategic Advice</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{strategicAdvice}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Route cards grouped by mode */}
+                {MODE_ORDER.filter(mode => logisticsRates.some(r => r.mode === mode)).map(mode => {
+                  const ModeIcon = MODE_ICON[mode] || Ship;
+                  const routes = logisticsRates.filter(r => r.mode === mode);
+                  const isSeaRisk = mode === "Sea" && eFactor && eFactor.multiplier > 1.2;
+                  const isRecommended = (mode === "Road" || mode === "Air") && eFactor && eFactor.multiplier > 1.2;
+                  return (
+                    <div key={mode}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <ModeIcon className="w-3.5 h-3.5 text-primary" />
+                        <span className="text-xs font-semibold text-foreground uppercase tracking-wide">{mode}</span>
+                        {isSeaRisk && <Badge className="text-[9px] bg-risk-high/10 text-risk-high border-risk-high/30" variant="outline">⚠ Weather Warning</Badge>}
+                        {isRecommended && <Badge className="text-[9px] bg-success/10 text-success border-success/30" variant="outline">✓ Qantara Recommended</Badge>}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {routes.map((route, idx) => {
+                          const isSelected = selectedRoute?.provider === route.provider && selectedRoute?.mode === route.mode;
+                          return (
+                            <button key={idx} onClick={() => handleSelectRoute(route)}
+                              className={cn(
+                                "text-left rounded-lg border p-3.5 transition-all hover:shadow-elevated",
+                                isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border bg-card hover:border-primary/30",
+                                isSeaRisk && "opacity-75"
+                              )}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-foreground">{route.provider}</span>
+                                <span className="text-sm font-bold font-mono text-primary">${route.base_cost}</span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 text-[11px]">
+                                <div>
+                                  <p className="text-muted-foreground">ETA</p>
+                                  <p className="font-semibold text-foreground">{route.transit_days}d</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Reliability</p>
+                                  <div className="flex items-center gap-1">
+                                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                                      <div className="h-full rounded-full bg-success" style={{ width: `${route.reliability_score}%` }} />
+                                    </div>
+                                    <span className="font-mono text-foreground">{route.reliability_score}%</span>
+                                  </div>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground flex items-center gap-0.5"><Leaf className="w-2.5 h-2.5" /> CO₂</p>
+                                  <p className="font-mono text-foreground">{route.carbon_footprint}kg</p>
+                                </div>
+                              </div>
+                              {isSelected && <p className="text-[10px] text-primary font-semibold mt-2">✓ Selected</p>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
 

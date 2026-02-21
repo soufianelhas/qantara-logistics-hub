@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.hs-classify]
 verify_jwt = false
+
+[functions.fetch-logistics-rates]
+verify_jwt = false
