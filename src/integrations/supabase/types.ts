@@ -94,6 +94,7 @@ export type Database = {
       shipments: {
         Row: {
           created_at: string
+          destination_city: string | null
           duty: number
           e_factor_multiplier: number
           freight: number
@@ -101,17 +102,20 @@ export type Database = {
           id: string
           insurance: number
           notes: string | null
+          origin_city: string | null
           port_congestion_level: string | null
           product_name: string
           raw_cost_v: number
           status: Database["public"]["Enums"]["shipment_status"]
           taxes: number
+          total_weight_kg: number | null
           updated_at: string
           user_id: string
           weather_risk_level: string | null
         }
         Insert: {
           created_at?: string
+          destination_city?: string | null
           duty?: number
           e_factor_multiplier?: number
           freight?: number
@@ -119,17 +123,20 @@ export type Database = {
           id?: string
           insurance?: number
           notes?: string | null
+          origin_city?: string | null
           port_congestion_level?: string | null
           product_name: string
           raw_cost_v?: number
           status?: Database["public"]["Enums"]["shipment_status"]
           taxes?: number
+          total_weight_kg?: number | null
           updated_at?: string
           user_id: string
           weather_risk_level?: string | null
         }
         Update: {
           created_at?: string
+          destination_city?: string | null
           duty?: number
           e_factor_multiplier?: number
           freight?: number
@@ -137,11 +144,13 @@ export type Database = {
           id?: string
           insurance?: number
           notes?: string | null
+          origin_city?: string | null
           port_congestion_level?: string | null
           product_name?: string
           raw_cost_v?: number
           status?: Database["public"]["Enums"]["shipment_status"]
           taxes?: number
+          total_weight_kg?: number | null
           updated_at?: string
           user_id?: string
           weather_risk_level?: string | null

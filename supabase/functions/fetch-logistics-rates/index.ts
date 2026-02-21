@@ -10,22 +10,36 @@ interface Route {
   mode: "Sea" | "Air" | "Road" | "Rail";
   provider: string;
   base_cost: number;
+  cost_per_kg: number;
   transit_days: number;
   reliability_score: number;
   carbon_footprint: number;
   currency: string;
+  calculated_price: number;
 }
 
-function getSimulatedRoutes(): Route[] {
-  return [
-    { mode: "Sea", provider: "Maersk Line", base_cost: 850, transit_days: 8, reliability_score: 88, carbon_footprint: 42, currency: "USD" },
-    { mode: "Sea", provider: "CMA CGM", base_cost: 780, transit_days: 9, reliability_score: 85, carbon_footprint: 45, currency: "USD" },
-    { mode: "Air", provider: "DHL Express", base_cost: 2400, transit_days: 2, reliability_score: 96, carbon_footprint: 180, currency: "USD" },
-    { mode: "Air", provider: "Royal Air Maroc Cargo", base_cost: 1950, transit_days: 3, reliability_score: 91, carbon_footprint: 165, currency: "USD" },
-    { mode: "Road", provider: "TransMaghreb Trucking", base_cost: 1200, transit_days: 3, reliability_score: 82, carbon_footprint: 95, currency: "USD" },
-    { mode: "Road", provider: "Algeciras Express Haulage", base_cost: 1350, transit_days: 2, reliability_score: 87, carbon_footprint: 88, currency: "USD" },
-    { mode: "Rail", provider: "ONCF Freight", base_cost: 650, transit_days: 5, reliability_score: 78, carbon_footprint: 35, currency: "USD" },
+function getSimulatedRoutes(weight_kg: number): Route[] {
+  const w = weight_kg || 1;
+  const raw = [
+    { mode: "Sea" as const, provider: "Maersk Line", cost_per_kg: 0.85, transit_days: 8, reliability_score: 88, carbon_per_kg: 0.042, currency: "USD" },
+    { mode: "Sea" as const, provider: "CMA CGM", cost_per_kg: 0.78, transit_days: 9, reliability_score: 85, carbon_per_kg: 0.045, currency: "USD" },
+    { mode: "Air" as const, provider: "DHL Express", cost_per_kg: 4.80, transit_days: 2, reliability_score: 96, carbon_per_kg: 0.36, currency: "USD" },
+    { mode: "Air" as const, provider: "Royal Air Maroc Cargo", cost_per_kg: 3.90, transit_days: 3, reliability_score: 91, carbon_per_kg: 0.33, currency: "USD" },
+    { mode: "Road" as const, provider: "TransMaghreb Trucking", cost_per_kg: 1.20, transit_days: 3, reliability_score: 82, carbon_per_kg: 0.095, currency: "USD" },
+    { mode: "Road" as const, provider: "Algeciras Express Haulage", cost_per_kg: 1.35, transit_days: 2, reliability_score: 87, carbon_per_kg: 0.088, currency: "USD" },
+    { mode: "Rail" as const, provider: "ONCF Freight", cost_per_kg: 0.65, transit_days: 5, reliability_score: 78, carbon_per_kg: 0.035, currency: "USD" },
   ];
+  return raw.map(r => ({
+    mode: r.mode,
+    provider: r.provider,
+    base_cost: Math.round(r.cost_per_kg * 1000), // base per-tonne reference
+    cost_per_kg: r.cost_per_kg,
+    transit_days: r.transit_days,
+    reliability_score: r.reliability_score,
+    carbon_footprint: Math.round(r.carbon_per_kg * w),
+    currency: r.currency,
+    calculated_price: Math.round(r.cost_per_kg * w * 100) / 100,
+  }));
 }
 
 serve(async (req) => {
@@ -34,9 +48,12 @@ serve(async (req) => {
   }
 
   try {
-    const { origin_port, destination_market, e_factor } = await req.json();
+    const { origin_city, destination_city, weight_kg, e_factor } = await req.json();
     const eFactor = e_factor ?? 1.0;
-    const routes = getSimulatedRoutes();
+    const weight = weight_kg ?? 100;
+    const origin = origin_city || "Casablanca";
+    const destination = destination_city || "Paris";
+    const routes = getSimulatedRoutes(weight);
 
     // Generate strategic advice via Lovable AI Gateway
     let strategic_advice = "";
@@ -51,13 +68,16 @@ serve(async (req) => {
 
       const prompt = `You are a logistics advisor for Moroccan exports. Given these transport options and current conditions, provide a 2-3 sentence strategic recommendation.
 
-Origin: ${origin_port || "Casablanca"}
-Destination: ${destination_market || "EU"}
+Origin: ${origin}
+Destination: ${destination}
+Package weight: ${weight}kg
 E-Factor: ×${eFactor}
 Risk Context: ${riskContext}
 
+First, determine the most logical transit port/hub based on the origin and destination cities. For example, if origin is Fes or Casablanca and destination is in Europe, suggest Tanger Med as the maritime hub. If the E-Factor shows high risk at that hub, explicitly name the port and suggest an alternative mode.
+
 Routes available:
-${routes.map(r => `- ${r.mode}: ${r.provider} — $${r.base_cost}, ${r.transit_days} days, ${r.reliability_score}% reliable`).join("\n")}
+${routes.map(r => `- ${r.mode}: ${r.provider} — $${r.calculated_price} for ${weight}kg, ${r.transit_days} days, ${r.reliability_score}% reliable`).join("\n")}
 
 Respond with ONLY the recommendation text, no formatting.`;
 
@@ -87,8 +107,8 @@ Respond with ONLY the recommendation text, no formatting.`;
 
     if (!strategic_advice) {
       strategic_advice = eFactor > 1.2
-        ? "Due to critical maritime weather risk (E-Factor ×" + eFactor.toFixed(2) + "), we recommend switching to Road or Air transport to avoid port delays at Tanger Med and Casablanca."
-        : "Current conditions are favorable. Sea freight offers the best cost-efficiency for non-time-sensitive shipments.";
+        ? `Due to critical maritime weather risk (E-Factor ×${eFactor.toFixed(2)}), we recommend switching to Road or Air transport to avoid port delays. For ${origin} to ${destination} (${weight}kg), Road via Algeciras offers the best balance of cost and reliability.`
+        : `Current conditions are favorable for ${origin} to ${destination}. Sea freight offers the best cost-efficiency for ${weight}kg shipments.`;
     }
 
     return new Response(JSON.stringify({ routes, strategic_advice }), {

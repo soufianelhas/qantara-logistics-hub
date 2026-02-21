@@ -74,10 +74,12 @@ interface LogisticsRoute {
   mode: "Sea" | "Air" | "Road" | "Rail";
   provider: string;
   base_cost: number;
+  cost_per_kg: number;
   transit_days: number;
   reliability_score: number;
   carbon_footprint: number;
   currency: string;
+  calculated_price: number;
 }
 
 const MODE_ICON: Record<string, typeof Ship> = { Sea: Ship, Air: Plane, Road: Truck, Rail: TrainFront };
@@ -144,6 +146,11 @@ export default function LandedCostEngine() {
   const [result,         setResult]         = useState<CalculationResult | null>(null);
   const [finalizing,     setFinalizing]     = useState(false);
 
+  // Shipment specs state
+  const [originCity, setOriginCity] = useState(() => localStorage.getItem("qantara_lce_originCity") || "");
+  const [destinationCity, setDestinationCity] = useState(() => localStorage.getItem("qantara_lce_destinationCity") || "");
+  const [totalWeightKg, setTotalWeightKg] = useState(() => localStorage.getItem("qantara_lce_totalWeightKg") || "");
+
   // Route Discovery state
   const [routeDiscoveryOpen, setRouteDiscoveryOpen] = useState(false);
   const [logisticsRates, setLogisticsRates] = useState<LogisticsRoute[]>([]);
@@ -158,6 +165,9 @@ export default function LandedCostEngine() {
   useEffect(() => { try { localStorage.setItem("qantara_lce_insurance", insurance); } catch {} }, [insurance]);
   useEffect(() => { try { localStorage.setItem("qantara_lce_duty", duty); } catch {} }, [duty]);
   useEffect(() => { try { localStorage.setItem("qantara_lce_taxes", taxes); } catch {} }, [taxes]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_originCity", originCity); } catch {} }, [originCity]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_destinationCity", destinationCity); } catch {} }, [destinationCity]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_totalWeightKg", totalWeightKg); } catch {} }, [totalWeightKg]);
 
   // Load recovered shipment data
   useEffect(() => {
@@ -253,8 +263,11 @@ export default function LandedCostEngine() {
             hs_code_assigned:    hsCode || null,
             port_congestion_level: eFactor?.portCongestion ?? null,
             weather_risk_level:    eFactor?.stormRisk ?? null,
+            origin_city:         originCity || null,
+            destination_city:    destinationCity || null,
+            total_weight_kg:     parseFloat(totalWeightKg) || null,
             status:              "Calculated",
-          })
+          } as any)
           .eq("id", activeShipmentId);
         if (error) throw error;
         toast({ title: "Costs finalized!", description: "Shipment updated to Calculated status." });
@@ -273,8 +286,11 @@ export default function LandedCostEngine() {
             hs_code_assigned:    hsCode || null,
             port_congestion_level: eFactor?.portCongestion ?? null,
             weather_risk_level:    eFactor?.stormRisk ?? null,
+            origin_city:         originCity || null,
+            destination_city:    destinationCity || null,
+            total_weight_kg:     parseFloat(totalWeightKg) || null,
             status:              "Calculated",
-          })
+          } as any)
           .select("id")
           .single();
         if (error) throw error;
@@ -307,20 +323,37 @@ export default function LandedCostEngine() {
     if (!fromClassifier) { setDuty(""); setTaxes(""); setHsCode(""); setProductName(""); }
     setEFactor(null); setResult(null);
     setLogisticsRates([]); setSelectedRoute(null); setStrategicAdvice(""); setRouteDiscoveryOpen(false);
+    setOriginCity(""); setDestinationCity(""); setTotalWeightKg("");
   };
+
+  const canFindRoutes = originCity.trim() !== "" && destinationCity.trim() !== "" && (parseFloat(totalWeightKg) || 0) > 0;
 
   const handleFetchRoutes = async () => {
     setRoutesLoading(true);
     try {
+      // Persist specs to Supabase if we have an active shipment
+      if (activeShipmentId) {
+        const { error: updateErr } = await supabase
+          .from("shipments")
+          .update({ origin_city: originCity, destination_city: destinationCity, total_weight_kg: parseFloat(totalWeightKg) || 0 })
+          .eq("id", activeShipmentId);
+        if (updateErr) console.error("Failed to persist shipment specs:", updateErr);
+      }
+
       const { data, error } = await supabase.functions.invoke("fetch-logistics-rates", {
-        body: { origin_port: "Casablanca", destination_market: "EU", e_factor: eFactor?.multiplier ?? 1.0 },
+        body: {
+          origin_city: originCity,
+          destination_city: destinationCity,
+          weight_kg: parseFloat(totalWeightKg) || 100,
+          e_factor: eFactor?.multiplier ?? 1.0,
+        },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       setLogisticsRates(data.routes || []);
       setStrategicAdvice(data.strategic_advice || "");
       setRouteDiscoveryOpen(true);
-      toast({ title: "Routes loaded", description: `${data.routes?.length || 0} transport options found` });
+      toast({ title: "Routes loaded", description: `${data.routes?.length || 0} options for ${originCity} → ${destinationCity}` });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to fetch routes";
       toast({ title: "Route Discovery Error", description: msg, variant: "destructive" });
@@ -331,8 +364,8 @@ export default function LandedCostEngine() {
 
   const handleSelectRoute = (route: LogisticsRoute) => {
     setSelectedRoute(route);
-    setFreight(String(route.base_cost));
-    toast({ title: "Route selected", description: `${route.provider} — $${route.base_cost} freight applied` });
+    setFreight(String(route.calculated_price));
+    toast({ title: "Route selected", description: `${route.provider} — $${route.calculated_price} freight applied` });
     if (result) handleCalculate();
   };
 
@@ -451,14 +484,30 @@ export default function LandedCostEngine() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Compare multi-modal transport options. Selecting a route auto-fills the <strong className="text-foreground">Freight (F)</strong> cost.
-            </p>
-            <Button onClick={handleFetchRoutes} disabled={routesLoading} variant="outline" className="border-primary/30 text-primary hover:bg-primary/5">
+            {/* Shipment Specifications */}
+            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+              <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Shipment Specifications</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Origin City</Label>
+                  <Input placeholder="e.g. Fes, Casablanca" value={originCity} onChange={(e) => setOriginCity(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Destination City</Label>
+                  <Input placeholder="e.g. Paris, New York" value={destinationCity} onChange={(e) => setDestinationCity(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Total Weight (kg)</Label>
+                  <Input type="number" min="0" step="0.1" placeholder="e.g. 500" value={totalWeightKg} onChange={(e) => setTotalWeightKg(e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            <Button onClick={handleFetchRoutes} disabled={routesLoading || !canFindRoutes} variant="outline" className="border-primary/30 text-primary hover:bg-primary/5">
               {routesLoading ? (
-                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Loading Routes…</>
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Scraping carriers for {originCity} to {destinationCity} for {totalWeightKg}kg package…</>
               ) : (
-                <><Search className="w-3.5 h-3.5" /> Find Routes</>
+                <><Search className="w-3.5 h-3.5" /> Find Best Route</>
               )}
             </Button>
 
@@ -501,8 +550,9 @@ export default function LandedCostEngine() {
                               )}>
                               <div className="flex items-center justify-between mb-2">
                                 <span className="text-xs font-semibold text-foreground">{route.provider}</span>
-                                <span className="text-sm font-bold font-mono text-primary">${route.base_cost}</span>
+                                <span className="text-sm font-bold font-mono text-primary">${route.calculated_price.toLocaleString()}</span>
                               </div>
+                              <p className="text-[10px] text-muted-foreground mb-1">${route.cost_per_kg}/kg × {totalWeightKg || "—"}kg</p>
                               <div className="grid grid-cols-3 gap-2 text-[11px]">
                                 <div>
                                   <p className="text-muted-foreground">ETA</p>
