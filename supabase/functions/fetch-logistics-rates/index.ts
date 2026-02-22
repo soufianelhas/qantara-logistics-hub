@@ -32,7 +32,7 @@ function getSimulatedRoutes(weight_kg: number): Route[] {
   return raw.map(r => ({
     mode: r.mode,
     provider: r.provider,
-    base_cost: Math.round(r.cost_per_kg * 1000), // base per-tonne reference
+    base_cost: Math.round(r.cost_per_kg * 1000),
     cost_per_kg: r.cost_per_kg,
     transit_days: r.transit_days,
     reliability_score: r.reliability_score,
@@ -55,7 +55,7 @@ serve(async (req) => {
     const destination = destination_city || "Paris";
     const routes = getSimulatedRoutes(weight);
 
-    // Generate strategic advice via Lovable AI Gateway
+    // Generate strategic advice via Lovable AI Gateway with search grounding context
     let strategic_advice = "";
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
@@ -66,20 +66,49 @@ serve(async (req) => {
         ? "MODERATE: Maritime E-Factor is elevated above 1.1. Some weather disruption possible. Consider reliability tradeoffs."
         : "LOW RISK: Weather conditions are favorable across all modes.";
 
-      const prompt = `You are a logistics advisor for Moroccan exports. Given these transport options and current conditions, provide a 2-3 sentence strategic recommendation.
+      // Determine likely transit hubs based on geography
+      const originLower = origin.toLowerCase();
+      const destLower = destination.toLowerCase();
+      
+      let transitHub = "Casablanca Port";
+      if (originLower.includes("fes") || originLower.includes("fez") || originLower.includes("tanger") || originLower.includes("tetouan") || originLower.includes("nador") || originLower.includes("oujda")) {
+        transitHub = "Tanger Med";
+      } else if (originLower.includes("agadir") || originLower.includes("essaouira") || originLower.includes("tiznit") || originLower.includes("taroudant")) {
+        transitHub = "Agadir Port";
+      } else if (originLower.includes("casablanca") || originLower.includes("rabat") || originLower.includes("kenitra") || originLower.includes("el jadida") || originLower.includes("settat") || originLower.includes("mohammedia")) {
+        transitHub = "Casablanca Port";
+      } else if (originLower.includes("marrakech") || originLower.includes("beni mellal") || originLower.includes("safi")) {
+        transitHub = "Casablanca Port";
+      }
+      
+      // For European destinations, Tanger Med is often optimal
+      const isEurope = ["paris", "london", "berlin", "madrid", "rome", "amsterdam", "brussels", "barcelona", "marseille", "hamburg", "frankfurt", "milan", "lyon", "munich", "vienna", "zurich", "lisbon", "porto"].some(c => destLower.includes(c));
+      if (isEurope && !originLower.includes("agadir")) {
+        transitHub = "Tanger Med";
+      }
 
-Origin: ${origin}
-Destination: ${destination}
-Package weight: ${weight}kg
-E-Factor: ×${eFactor}
-Risk Context: ${riskContext}
+      const prompt = `You are a senior logistics consultant specializing in Moroccan exports. Provide a 3-4 sentence strategic recommendation for this specific shipment.
 
-First, determine the most logical transit port/hub based on the origin and destination cities. For example, if origin is Fes or Casablanca and destination is in Europe, suggest Tanger Med as the maritime hub. If the E-Factor shows high risk at that hub, explicitly name the port and suggest an alternative mode.
+SHIPMENT DETAILS:
+- Origin: ${origin}, Morocco
+- Destination: ${destination}
+- Weight: ${weight}kg
+- E-Factor: ×${eFactor.toFixed(2)}
+- Identified Transit Hub: ${transitHub}
 
-Routes available:
-${routes.map(r => `- ${r.mode}: ${r.provider} — $${r.calculated_price} for ${weight}kg, ${r.transit_days} days, ${r.reliability_score}% reliable`).join("\n")}
+WEATHER & RISK CONTEXT:
+${riskContext}
 
-Respond with ONLY the recommendation text, no formatting.`;
+AVAILABLE ROUTES:
+${routes.map(r => `- ${r.mode} (${r.provider}): $${r.calculated_price} total for ${weight}kg, ${r.transit_days} days transit, ${r.reliability_score}% reliability`).join("\n")}
+
+INSTRUCTIONS:
+1. Start by explicitly naming the transit port/hub (${transitHub}) and explain WHY it's the logical hub for ${origin} → ${destination}.
+2. If E-Factor > 1.2, warn about specific weather conditions at ${transitHub} (e.g., "Heavy winds at ${transitHub}") and recommend an alternative mode with specific cost comparison.
+3. Include a percentage cost comparison between the cheapest and recommended options (e.g., "Road is 15% cheaper than Air while maintaining a 3-day ETA").
+4. For packages under 100kg, note that Air may be more cost-effective despite higher per-kg rates due to faster clearance.
+
+Respond with ONLY the recommendation text. Be specific about the route, numbers, and transit hub.`;
 
       try {
         const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -108,7 +137,7 @@ Respond with ONLY the recommendation text, no formatting.`;
     if (!strategic_advice) {
       strategic_advice = eFactor > 1.2
         ? `Due to critical maritime weather risk (E-Factor ×${eFactor.toFixed(2)}), we recommend switching to Road or Air transport to avoid port delays. For ${origin} to ${destination} (${weight}kg), Road via Algeciras offers the best balance of cost and reliability.`
-        : `Current conditions are favorable for ${origin} to ${destination}. Sea freight offers the best cost-efficiency for ${weight}kg shipments.`;
+        : `Current conditions are favorable for ${origin} to ${destination}. Sea freight offers the best cost-efficiency for ${weight}kg shipments. Rail via ONCF is the cheapest option at $${(0.65 * weight).toFixed(2)} if transit time permits.`;
     }
 
     return new Response(JSON.stringify({ routes, strategic_advice }), {

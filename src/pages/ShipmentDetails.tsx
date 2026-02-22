@@ -32,6 +32,9 @@ interface Shipment {
   port_congestion_level: string | null;
   weather_risk_level: string | null;
   notes: string | null;
+  origin_city: string | null;
+  destination_city: string | null;
+  total_weight_kg: number | null;
 }
 
 interface ShipmentDocument {
@@ -39,6 +42,7 @@ interface ShipmentDocument {
   document_label: string;
   document_type: string;
   status: DocumentStatus;
+  file_path: string | null;
 }
 
 interface PortWeather {
@@ -92,7 +96,7 @@ export default function ShipmentDetails() {
       setLoading(true);
       const [shipRes, docRes] = await Promise.all([
         supabase.from("shipments").select("*").eq("id", id).single(),
-        supabase.from("shipment_documents").select("id, document_label, document_type, status").eq("shipment_id", id),
+        supabase.from("shipment_documents").select("id, document_label, document_type, status, file_path").eq("shipment_id", id),
       ]);
       if (shipRes.data) setShipment(shipRes.data as unknown as Shipment);
       if (docRes.data) setDocuments(docRes.data as unknown as ShipmentDocument[]);
@@ -190,13 +194,19 @@ export default function ShipmentDetails() {
                   <p className="font-mono font-semibold text-foreground">{shipment.hs_code_assigned || "Pending"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground flex items-center gap-1"><MapPin className="w-3 h-3" /> Origin Port</p>
-                  <p className="font-medium text-foreground">Casablanca</p>
+                  <p className="text-muted-foreground flex items-center gap-1"><MapPin className="w-3 h-3" /> Origin</p>
+                  <p className="font-medium text-foreground">{shipment.origin_city || "Casablanca"}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Destination</p>
-                  <p className="font-medium text-foreground">EU</p>
+                  <p className="font-medium text-foreground">{shipment.destination_city || "EU"}</p>
                 </div>
+                {shipment.total_weight_kg && (
+                  <div>
+                    <p className="text-muted-foreground">Weight</p>
+                    <p className="font-medium text-foreground">{shipment.total_weight_kg} kg</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" /> Created</p>
                   <p className="font-medium text-foreground">{new Date(shipment.created_at).toLocaleDateString("en-GB")}</p>
@@ -309,13 +319,16 @@ export default function ShipmentDetails() {
                   <Progress value={docProgress} className="h-2" />
                   <div className="space-y-2">
                     {documents.map(doc => {
-                      const statusInfo = DOC_STATUS_ICON[doc.status as DocumentStatus] || DOC_STATUS_ICON.Missing;
+                      const docStatus = doc.status as DocumentStatus;
+                      const statusInfo = DOC_STATUS_ICON[docStatus] || DOC_STATUS_ICON.Missing;
                       const Icon = statusInfo.icon;
                       return (
                         <div key={doc.id} className="flex items-center gap-2 text-xs">
                           <Icon className={cn("w-3.5 h-3.5", statusInfo.color)} />
                           <span className="flex-1 text-foreground">{doc.document_label}</span>
-                          <Badge variant="outline" className={cn("text-[9px]", statusInfo.color)}>{doc.status}</Badge>
+                          <Badge variant="outline" className={cn("text-[9px]", statusInfo.color)}>
+                            {docStatus === "Ready" || docStatus === "Filed" ? docStatus : docStatus}
+                          </Badge>
                         </div>
                       );
                     })}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { WorkflowStepper } from "@/components/WorkflowStepper";
@@ -31,6 +31,9 @@ import {
   Leaf,
   Sparkles,
   Search,
+  MapPin,
+  Package,
+  ChevronDown,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -113,6 +116,7 @@ export default function LandedCostEngine() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const calculatorRef = useRef<HTMLDivElement>(null);
 
   // Read params from HS Navigator
   const fromClassifier = searchParams.get("from") === "classifier";
@@ -123,16 +127,15 @@ export default function LandedCostEngine() {
   const paramConfidence = searchParams.get("confidence") || "";
   const paramShipmentId = searchParams.get("shipment_id") || null;
 
-  // Smart shipment recovery — accept Draft or Calculated so we can resume
+  // Smart shipment recovery
   const { shipmentId: recoveredId, shipment: recoveredShipment, loading: recoveryLoading, recovered, setShipmentId: setRecoveredId } = useShipmentRecovery(paramShipmentId, ["Draft", "Calculated"]);
   const [activeShipmentId, setActiveShipmentId] = useState<string | null>(paramShipmentId);
 
-  // Sync recovered ID into local active state
   useEffect(() => {
     if (recoveredId && !activeShipmentId) setActiveShipmentId(recoveredId);
   }, [recoveredId]);
 
-  // User-editable fields — restore from localStorage
+  // User-editable fields
   const [productName,  setProductName]  = useState(() => paramProduct || localStorage.getItem("qantara_lce_productName") || "");
   const [hsCode,       setHsCode]       = useState(() => paramHsCode || localStorage.getItem("qantara_lce_hsCode") || "");
   const [productValue, setProductValue] = useState(() => localStorage.getItem("qantara_lce_productValue") || "");
@@ -157,6 +160,10 @@ export default function LandedCostEngine() {
   const [routesLoading, setRoutesLoading] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<LogisticsRoute | null>(null);
   const [strategicAdvice, setStrategicAdvice] = useState("");
+
+  // Sequential activation: calculator unlocked only after route selection
+  const calculatorUnlocked = selectedRoute !== null;
+
   // Save form state to localStorage
   useEffect(() => { try { localStorage.setItem("qantara_lce_productName", productName); } catch {} }, [productName]);
   useEffect(() => { try { localStorage.setItem("qantara_lce_hsCode", hsCode); } catch {} }, [hsCode]);
@@ -186,27 +193,20 @@ export default function LandedCostEngine() {
     setTaxes(String(paramTax));
   }, [paramHsCode]);
 
-  // ── E-Factor — Real-Time Weather ──────────────────────────────────────────
+  // ── E-Factor ──────────────────────────────────────────────────────────────
 
   const handleFetchEFactor = async () => {
     setEFactorLoading(true);
     setEFactor(null);
-
     try {
       const { data, error } = await supabase.functions.invoke("weather-efactor");
-
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-
       setEFactor(data as EFactorData);
-      toast({
-        title: "E-Factor Assessed — Live Data",
-        description: `Multiplier: ×${data.multiplier} (${data.ports?.length || 0} ports queried)`,
-      });
+      toast({ title: "E-Factor Assessed — Live Data", description: `Multiplier: ×${data.multiplier} (${data.ports?.length || 0} ports queried)` });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Weather fetch failed";
       toast({ title: "E-Factor Error", description: msg, variant: "destructive" });
-      console.error("E-Factor fetch error:", err);
     } finally {
       setEFactorLoading(false);
     }
@@ -227,16 +227,7 @@ export default function LandedCostEngine() {
     const e = eFactor?.multiplier ?? 1.0;
     const optimistic = v + f + i + dAbsolute + tAbsolute;
     const realistic  = optimistic * e;
-    const calcResult = {
-      v, f, i,
-      d: dAbsolute,
-      t: tAbsolute,
-      eFactor: e,
-      optimistic,
-      realistic,
-      difference: realistic - optimistic,
-    };
-    setResult(calcResult);
+    setResult({ v, f, i, d: dAbsolute, t: tAbsolute, eFactor: e, optimistic, realistic, difference: realistic - optimistic });
     localStorage.setItem("qantara_efactor", String(e));
   };
 
@@ -245,28 +236,18 @@ export default function LandedCostEngine() {
   const handleFinalizeAndGenerateDocs = async () => {
     if (!result) return;
     setFinalizing(true);
-
     try {
       const { data: { user } } = await supabase.auth.getUser();
-
       if (user && activeShipmentId) {
         const { error } = await supabase
           .from("shipments")
           .update({
-            product_name:        productName || paramProduct || "Unnamed Product",
-            raw_cost_v:          result.v,
-            freight:             result.f,
-            insurance:           result.i,
-            duty:                result.d,
-            taxes:               result.t,
-            e_factor_multiplier: result.eFactor,
-            hs_code_assigned:    hsCode || null,
-            port_congestion_level: eFactor?.portCongestion ?? null,
-            weather_risk_level:    eFactor?.stormRisk ?? null,
-            origin_city:         originCity || null,
-            destination_city:    destinationCity || null,
-            total_weight_kg:     parseFloat(totalWeightKg) || null,
-            status:              "Calculated",
+            product_name: productName || paramProduct || "Unnamed Product",
+            raw_cost_v: result.v, freight: result.f, insurance: result.i, duty: result.d, taxes: result.t,
+            e_factor_multiplier: result.eFactor, hs_code_assigned: hsCode || null,
+            port_congestion_level: eFactor?.portCongestion ?? null, weather_risk_level: eFactor?.stormRisk ?? null,
+            origin_city: originCity || null, destination_city: destinationCity || null,
+            total_weight_kg: parseFloat(totalWeightKg) || null, status: "Calculated",
           } as any)
           .eq("id", activeShipmentId);
         if (error) throw error;
@@ -275,21 +256,12 @@ export default function LandedCostEngine() {
         const { data: newShipment, error } = await supabase
           .from("shipments")
           .insert({
-            user_id:             user.id,
-            product_name:        productName || paramProduct || "Unnamed Product",
-            raw_cost_v:          result.v,
-            freight:             result.f,
-            insurance:           result.i,
-            duty:                result.d,
-            taxes:               result.t,
-            e_factor_multiplier: result.eFactor,
-            hs_code_assigned:    hsCode || null,
-            port_congestion_level: eFactor?.portCongestion ?? null,
-            weather_risk_level:    eFactor?.stormRisk ?? null,
-            origin_city:         originCity || null,
-            destination_city:    destinationCity || null,
-            total_weight_kg:     parseFloat(totalWeightKg) || null,
-            status:              "Calculated",
+            user_id: user.id, product_name: productName || paramProduct || "Unnamed Product",
+            raw_cost_v: result.v, freight: result.f, insurance: result.i, duty: result.d, taxes: result.t,
+            e_factor_multiplier: result.eFactor, hs_code_assigned: hsCode || null,
+            port_congestion_level: eFactor?.portCongestion ?? null, weather_risk_level: eFactor?.stormRisk ?? null,
+            origin_city: originCity || null, destination_city: destinationCity || null,
+            total_weight_kg: parseFloat(totalWeightKg) || null, status: "Calculated",
           } as any)
           .select("id")
           .single();
@@ -331,7 +303,6 @@ export default function LandedCostEngine() {
   const handleFetchRoutes = async () => {
     setRoutesLoading(true);
     try {
-      // Persist specs to Supabase if we have an active shipment
       if (activeShipmentId) {
         const { error: updateErr } = await supabase
           .from("shipments")
@@ -342,10 +313,8 @@ export default function LandedCostEngine() {
 
       const { data, error } = await supabase.functions.invoke("fetch-logistics-rates", {
         body: {
-          origin_city: originCity,
-          destination_city: destinationCity,
-          weight_kg: parseFloat(totalWeightKg) || 100,
-          e_factor: eFactor?.multiplier ?? 1.0,
+          origin_city: originCity, destination_city: destinationCity,
+          weight_kg: parseFloat(totalWeightKg) || 100, e_factor: eFactor?.multiplier ?? 1.0,
         },
       });
       if (error) throw error;
@@ -366,6 +335,10 @@ export default function LandedCostEngine() {
     setSelectedRoute(route);
     setFreight(String(route.calculated_price));
     toast({ title: "Route selected", description: `${route.provider} — $${route.calculated_price} freight applied` });
+    // Scroll to calculator
+    setTimeout(() => {
+      calculatorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
     if (result) handleCalculate();
   };
 
@@ -417,22 +390,22 @@ export default function LandedCostEngine() {
           </div>
         )}
 
-        {/* Cost Inputs */}
+        {/* ═══════════════ STEP 1: Shipment Specifications ═══════════════ */}
         <Card className="border-border shadow-card">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Calculator className="w-3.5 h-3.5 text-primary" />
+                <MapPin className="w-3.5 h-3.5 text-primary" />
               </div>
-              Cost Inputs
-              {fromClassifier && (
-                <Badge variant="outline" className="ml-auto text-[10px] border-border text-muted-foreground font-normal gap-1">
-                  <Lock className="w-2.5 h-2.5" /> D & T pre-filled from TARIC
+              <span>Step 1 — Shipment Specifications</span>
+              {canFindRoutes && (
+                <Badge variant="outline" className="ml-auto text-[10px] border-success/30 text-success gap-1">
+                  <CheckCircle2 className="w-2.5 h-2.5" /> Complete
                 </Badge>
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Product Name</Label>
@@ -445,37 +418,124 @@ export default function LandedCostEngine() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <CostField label="V — Product Value" placeholder="0.00" value={productValue} onChange={setProductValue} userInput />
-              <CostField label="F — Freight Cost" placeholder="0.00" value={freight} onChange={setFreight} userInput />
-              <CostField label="I — Insurance" placeholder="0.00" value={insurance} onChange={setInsurance} userInput />
-              <CostField label="D — Duty Rate" placeholder="0.00" value={duty} onChange={setDuty} locked={fromClassifier}
-                suffix={fromClassifier ? "% of V" : undefined} hint={fromClassifier ? "TARIC rate" : undefined} />
-              <CostField label="T — Tax Rate" placeholder="0.00" value={taxes} onChange={setTaxes} locked={fromClassifier}
-                suffix={fromClassifier ? "% of V" : undefined} hint={fromClassifier ? "TARIC rate" : undefined} />
-            </div>
-
-            <div className="rounded-lg border border-primary/15 bg-primary/5 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-              <span className="font-mono text-xs text-primary font-semibold">Total = V + F + I + D + T</span>
-              <span className="text-muted-foreground text-xs">×</span>
-              <span className="font-mono text-xs text-foreground font-semibold">E-Factor</span>
-              {fromClassifier && (
-                <Badge variant="outline" className="ml-auto text-[10px] border-primary/25 text-primary gap-1">
-                  <Brain className="w-2.5 h-2.5" /> TARIC Compound Record
-                </Badge>
-              )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> Origin City
+                </Label>
+                <Input placeholder="e.g. Fes, Casablanca" value={originCity} onChange={(e) => setOriginCity(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> Destination City
+                </Label>
+                <Input placeholder="e.g. Paris, New York" value={destinationCity} onChange={(e) => setDestinationCity(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <Package className="w-3 h-3" /> Total Weight (kg)
+                </Label>
+                <Input type="number" min="0" step="0.1" placeholder="e.g. 500" value={totalWeightKg} onChange={(e) => setTotalWeightKg(e.target.value)} />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Route Discovery */}
+        {/* ═══════════════ STEP 1b: E-Factor — Live Weather ═══════════════ */}
+        <Card className="border-border shadow-card">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <div className="w-7 h-7 rounded-lg bg-risk-high/10 border border-risk-high/20 flex items-center justify-center">
+                <AlertTriangle className="w-3.5 h-3.5 text-risk-high" />
+              </div>
+              E-Factor — Risk Multiplier
+              <Badge variant="outline" className="ml-auto text-xs border-border">
+                OpenWeather Live
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Fetches <strong className="text-foreground">real-time weather data</strong> for Tanger Med, Casablanca & Agadir via OpenWeather API.
+              Wind speed &gt; 25 knots adds +0.2 (port shutdown risk). Delay days add +0.05 each.
+            </p>
+            <Button onClick={handleFetchEFactor} disabled={eFactorLoading} variant="outline" className="border-primary/30 text-primary hover:bg-primary/5">
+              {eFactorLoading ? (
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Querying OpenWeather API…</>
+              ) : (
+                <><Ship className="w-3.5 h-3.5" /> Fetch Live E-Factor</>
+              )}
+            </Button>
+
+            {eFactor && eFactor.ports && eFactor.ports.length > 0 && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {eFactor.ports.map((p) => (
+                    <div key={p.port} className="rounded-lg border border-border bg-card p-3 space-y-2">
+                      <p className="text-xs font-semibold text-foreground">{p.portName}</p>
+                      <div className="space-y-1.5 text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-muted-foreground"><Wind className="w-3 h-3" /> Wind</span>
+                          <span className={cn("font-mono font-bold", p.windSpeedKnots > 25 ? "text-risk-high" : p.windSpeedKnots > 18 ? "text-warning" : "text-risk-low")}>
+                            {p.windSpeedKnots} kn
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-muted-foreground"><Eye className="w-3 h-3" /> Visibility</span>
+                          <span className="font-mono text-foreground">{(p.visibility / 1000).toFixed(1)} km</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 text-muted-foreground"><Thermometer className="w-3 h-3" /> Temp</span>
+                          <span className="font-mono text-foreground">{p.temperature.toFixed(1)}°C</span>
+                        </div>
+                        <p className="text-muted-foreground capitalize">{p.weatherDescription}</p>
+                        {p.hasStormAlert && (
+                          <Badge variant="outline" className="text-[9px] border-risk-high/30 text-risk-high bg-risk-high/10">⚠ Storm Alert</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className={cn("rounded-lg border p-4 space-y-2 border-border", congestionInfo?.bg)}>
+                    <div className="flex items-center gap-2">
+                      <Anchor className={cn("w-4 h-4", congestionInfo?.color)} />
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Port Congestion</span>
+                    </div>
+                    <p className={cn("text-lg font-bold", congestionInfo?.color)}>{congestionInfo?.label}</p>
+                    <p className="text-xs text-muted-foreground">Est. delay: {eFactor.breakdown.totalDelayDays} days</p>
+                  </div>
+                  <div className={cn("rounded-lg border p-4 space-y-2 border-border", stormInfo?.bg)}>
+                    <div className="flex items-center gap-2">
+                      <CloudLightning className={cn("w-4 h-4", stormInfo?.color)} />
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Storm Risk</span>
+                    </div>
+                    <p className={cn("text-lg font-bold", stormInfo?.color)}>{stormInfo?.label}</p>
+                    <p className="text-xs text-muted-foreground">Wind contrib: +{(eFactor.breakdown.windContribution * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">E-Factor</span>
+                    </div>
+                    <p className="text-2xl font-bold text-primary font-mono">×{eFactor.multiplier.toFixed(4)}</p>
+                    <p className="text-xs text-muted-foreground">Premium: +{((eFactor.multiplier - 1) * 100).toFixed(1)}%</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ═══════════════ STEP 2: Route Discovery ═══════════════ */}
         <Card className="border-border shadow-card">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
                 <Search className="w-3.5 h-3.5 text-primary" />
               </div>
-              Route Discovery
+              <span>Step 2 — Route Discovery</span>
               {selectedRoute && (
                 <Badge variant="outline" className="ml-auto text-[10px] border-success/30 text-success gap-1">
                   <CheckCircle2 className="w-2.5 h-2.5" /> {selectedRoute.provider}
@@ -484,28 +544,12 @@ export default function LandedCostEngine() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Shipment Specifications */}
-            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
-              <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Shipment Specifications</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-[11px] text-muted-foreground">Origin City</Label>
-                  <Input placeholder="e.g. Fes, Casablanca" value={originCity} onChange={(e) => setOriginCity(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[11px] text-muted-foreground">Destination City</Label>
-                  <Input placeholder="e.g. Paris, New York" value={destinationCity} onChange={(e) => setDestinationCity(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[11px] text-muted-foreground">Total Weight (kg)</Label>
-                  <Input type="number" min="0" step="0.1" placeholder="e.g. 500" value={totalWeightKg} onChange={(e) => setTotalWeightKg(e.target.value)} />
-                </div>
-              </div>
-            </div>
-
-            <Button onClick={handleFetchRoutes} disabled={routesLoading || !canFindRoutes} variant="outline" className="border-primary/30 text-primary hover:bg-primary/5">
+            <Button onClick={handleFetchRoutes} disabled={routesLoading || !canFindRoutes} variant="outline"
+              className="w-full border-primary/30 text-primary hover:bg-primary/5 h-11">
               {routesLoading ? (
-                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Scraping carriers for {originCity} to {destinationCity} for {totalWeightKg}kg package…</>
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> AI Expert is scraping current market rates for {totalWeightKg}kg from {originCity} to {destinationCity}…</>
+              ) : !canFindRoutes ? (
+                <><Lock className="w-3.5 h-3.5" /> Complete Shipment Specifications above to unlock</>
               ) : (
                 <><Search className="w-3.5 h-3.5" /> Find Best Route</>
               )}
@@ -513,12 +557,12 @@ export default function LandedCostEngine() {
 
             {routeDiscoveryOpen && logisticsRates.length > 0 && (
               <div className="space-y-4 animate-fade-in">
-                {/* Strategic Advice */}
+                {/* Consultant's Recommendation */}
                 {strategicAdvice && (
                   <div className="rounded-lg border-2 border-primary/25 bg-primary/5 px-4 py-3 flex items-start gap-3">
                     <Sparkles className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-xs font-semibold text-foreground mb-1">Strategic Advice</p>
+                      <p className="text-xs font-semibold text-foreground mb-1">Consultant's Recommendation</p>
                       <p className="text-xs text-muted-foreground leading-relaxed">{strategicAdvice}</p>
                     </div>
                   </div>
@@ -572,7 +616,7 @@ export default function LandedCostEngine() {
                                   <p className="font-mono text-foreground">{route.carbon_footprint}kg</p>
                                 </div>
                               </div>
-                              {isSelected && <p className="text-[10px] text-primary font-semibold mt-2">✓ Selected</p>}
+                              {isSelected && <p className="text-[10px] text-primary font-semibold mt-2">✓ Selected — Freight auto-filled</p>}
                             </button>
                           );
                         })}
@@ -585,105 +629,71 @@ export default function LandedCostEngine() {
           </CardContent>
         </Card>
 
-        {/* E-Factor — Live Weather */}
-        <Card className="border-border shadow-card">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <div className="w-7 h-7 rounded-lg bg-risk-high/10 border border-risk-high/20 flex items-center justify-center">
-                <AlertTriangle className="w-3.5 h-3.5 text-risk-high" />
-              </div>
-              E-Factor — Risk Multiplier
-              <Badge variant="outline" className="ml-auto text-xs border-border">
-                OpenWeather Live
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Fetches <strong className="text-foreground">real-time weather data</strong> for Tanger Med, Casablanca & Agadir via OpenWeather API.
-              Wind speed &gt; 25 knots adds +0.2 (port shutdown risk). Delay days add +0.05 each.
-            </p>
-            <Button
-              onClick={handleFetchEFactor}
-              disabled={eFactorLoading}
-              variant="outline"
-              className="border-primary/30 text-primary hover:bg-primary/5"
-            >
-              {eFactorLoading ? (
-                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Querying OpenWeather API…</>
-              ) : (
-                <><Ship className="w-3.5 h-3.5" /> Fetch Live E-Factor</>
+        {/* ═══════════════ STEP 3: Cost Breakdown Calculator ═══════════════ */}
+        <div ref={calculatorRef}>
+          <Card className={cn(
+            "border-border shadow-card transition-all duration-300",
+            !calculatorUnlocked && "opacity-60"
+          )}>
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
+                  <Calculator className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <span>Step 3 — Detailed Cost Breakdown</span>
+                {!calculatorUnlocked && (
+                  <Badge variant="outline" className="ml-auto text-[10px] border-border text-muted-foreground gap-1">
+                    <Lock className="w-2.5 h-2.5" /> Select a route to unlock
+                  </Badge>
+                )}
+                {fromClassifier && calculatorUnlocked && (
+                  <Badge variant="outline" className="ml-auto text-[10px] border-border text-muted-foreground font-normal gap-1">
+                    <Lock className="w-2.5 h-2.5" /> D & T pre-filled from TARIC
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {!calculatorUnlocked && (
+                <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
+                  <ChevronDown className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-xs text-muted-foreground">Select a transport route above to unlock the cost calculator</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Freight cost will be auto-populated from your route selection</p>
+                </div>
               )}
-            </Button>
 
-            {/* Port weather cards */}
-            {eFactor && eFactor.ports && eFactor.ports.length > 0 && (
-              <div className="space-y-4 animate-fade-in">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {eFactor.ports.map((p) => (
-                    <div key={p.port} className="rounded-lg border border-border bg-card p-3 space-y-2">
-                      <p className="text-xs font-semibold text-foreground">{p.portName}</p>
-                      <div className="space-y-1.5 text-[11px]">
-                        <div className="flex items-center justify-between">
-                          <span className="flex items-center gap-1 text-muted-foreground"><Wind className="w-3 h-3" /> Wind</span>
-                          <span className={cn("font-mono font-bold", p.windSpeedKnots > 25 ? "text-risk-high" : p.windSpeedKnots > 18 ? "text-warning" : "text-risk-low")}>
-                            {p.windSpeedKnots} kn
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="flex items-center gap-1 text-muted-foreground"><Eye className="w-3 h-3" /> Visibility</span>
-                          <span className="font-mono text-foreground">{(p.visibility / 1000).toFixed(1)} km</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="flex items-center gap-1 text-muted-foreground"><Thermometer className="w-3 h-3" /> Temp</span>
-                          <span className="font-mono text-foreground">{p.temperature.toFixed(1)}°C</span>
-                        </div>
-                        <p className="text-muted-foreground capitalize">{p.weatherDescription}</p>
-                        {p.hasStormAlert && (
-                          <Badge variant="outline" className="text-[9px] border-risk-high/30 text-risk-high bg-risk-high/10">⚠ Storm Alert</Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              {calculatorUnlocked && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <CostField label="V — Product Value" placeholder="0.00" value={productValue} onChange={setProductValue} userInput />
+                    <CostField label="F — Freight Cost" placeholder="0.00" value={freight} onChange={setFreight}
+                      hint={selectedRoute ? `Auto-filled: ${selectedRoute.provider}` : undefined} />
+                    <CostField label="I — Insurance" placeholder="0.00" value={insurance} onChange={setInsurance} userInput />
+                    <CostField label="D — Duty Rate" placeholder="0.00" value={duty} onChange={setDuty} locked={fromClassifier}
+                      suffix={fromClassifier ? "% of V" : undefined} hint={fromClassifier ? "TARIC rate" : undefined} />
+                    <CostField label="T — Tax Rate" placeholder="0.00" value={taxes} onChange={setTaxes} locked={fromClassifier}
+                      suffix={fromClassifier ? "% of V" : undefined} hint={fromClassifier ? "TARIC rate" : undefined} />
+                  </div>
 
-                {/* Summary cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className={cn("rounded-lg border p-4 space-y-2 border-border", congestionInfo?.bg)}>
-                    <div className="flex items-center gap-2">
-                      <Anchor className={cn("w-4 h-4", congestionInfo?.color)} />
-                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Port Congestion</span>
-                    </div>
-                    <p className={cn("text-lg font-bold", congestionInfo?.color)}>{congestionInfo?.label}</p>
-                    <p className="text-xs text-muted-foreground">Est. delay: {eFactor.breakdown.totalDelayDays} days</p>
+                  <div className="rounded-lg border border-primary/15 bg-primary/5 px-4 py-2.5 flex items-center gap-3 flex-wrap">
+                    <span className="font-mono text-xs text-primary font-semibold">Total = V + F + I + D + T</span>
+                    <span className="text-muted-foreground text-xs">×</span>
+                    <span className="font-mono text-xs text-foreground font-semibold">E-Factor</span>
+                    {fromClassifier && (
+                      <Badge variant="outline" className="ml-auto text-[10px] border-primary/25 text-primary gap-1">
+                        <Brain className="w-2.5 h-2.5" /> TARIC Compound Record
+                      </Badge>
+                    )}
                   </div>
-                  <div className={cn("rounded-lg border p-4 space-y-2 border-border", stormInfo?.bg)}>
-                    <div className="flex items-center gap-2">
-                      <CloudLightning className={cn("w-4 h-4", stormInfo?.color)} />
-                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Storm Risk</span>
-                    </div>
-                    <p className={cn("text-lg font-bold", stormInfo?.color)}>{stormInfo?.label}</p>
-                    <p className="text-xs text-muted-foreground">Wind contrib: +{(eFactor.breakdown.windContribution * 100).toFixed(1)}%</p>
-                  </div>
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-primary" />
-                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">E-Factor</span>
-                    </div>
-                    <p className="text-2xl font-bold text-primary font-mono">×{eFactor.multiplier.toFixed(4)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Premium: +{((eFactor.multiplier - 1) * 100).toFixed(1)}%
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Action Row */}
         <div className="flex items-center gap-3 flex-wrap">
-          <Button onClick={handleCalculate} disabled={!productValue} className="bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button onClick={handleCalculate} disabled={!productValue || !calculatorUnlocked} className="bg-primary text-primary-foreground hover:bg-primary/90">
             <Calculator className="w-4 h-4" /> Calculate Landed Cost
           </Button>
           <Button onClick={handleReset} variant="ghost" className="text-muted-foreground hover:text-foreground ml-auto">
