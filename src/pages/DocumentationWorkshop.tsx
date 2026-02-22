@@ -26,6 +26,7 @@ import {
   Sprout, Heart, Trees, Zap, Moon, Flag, CheckCircle2, Clock,
   AlertCircle, Upload, Brain, Printer, ChevronRight,
   ArrowLeft, Eye, Edit3, Send, RefreshCw, Building2, User, Database,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -525,6 +526,7 @@ export default function DocumentationWorkshop() {
   const [invoiceNo, setInvoiceNo] = useState(`INV-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`);
   const [invoiceDate, setInvoiceDate] = useState(new Date().toLocaleDateString("en-GB"));
   const [savingDocId, setSavingDocId] = useState<string | null>(null);
+  const [syncingCount, setSyncingCount] = useState(0);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const [filingShipment, setFilingShipment] = useState(false);
@@ -619,6 +621,7 @@ export default function DocumentationWorkshop() {
     if (toSync.length === 0) return;
 
     const syncDocs = async () => {
+      setSyncingCount(toSync.length);
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
@@ -630,14 +633,25 @@ export default function DocumentationWorkshop() {
             document_label: doc.label,
             target_market: targetMarket,
             status: "Ready" as any,
-            metadata: { hs_code: hsCode, product_name: productName },
+            metadata: {
+              hs_code: hsCode,
+              product_name: productName,
+              exporter_company: exporter.companyName,
+              consignee_company: consignee.companyName,
+              consignee_country: consignee.country,
+              quantity,
+              unit_price: unitPrice,
+              currency,
+              incoterm,
+            },
           }, { onConflict: "user_id,document_type,shipment_id" });
         }
         toast({ title: "Documents synced", description: `${toSync.length} document(s) auto-saved as Ready` });
       } catch { /* silent */ }
+      setSyncingCount(0);
     };
     syncDocs();
-  }, [statuses, shipmentId, checklist, targetMarket, hsCode, productName]);
+  }, [statuses, shipmentId, checklist, targetMarket, hsCode, productName, exporter, consignee, quantity, unitPrice, currency, incoterm]);
 
   const readyCount = Object.values(statuses).filter(s => s === "Ready" || s === "Filed").length;
   const progressPercent = checklist.length > 0 ? Math.round((readyCount / checklist.length) * 100) : 0;
@@ -679,7 +693,17 @@ export default function DocumentationWorkshop() {
           target_market: targetMarket,
           status: newStatus,
           generated_at: newStatus === "Filed" ? new Date().toISOString() : null,
-          metadata: { hs_code: hsCode, product_name: productName },
+          metadata: {
+            hs_code: hsCode,
+            product_name: productName,
+            exporter_company: exporter.companyName,
+            consignee_company: consignee.companyName,
+            consignee_country: consignee.country,
+            quantity,
+            unit_price: unitPrice,
+            currency,
+            incoterm,
+          },
         }, { onConflict: "user_id,document_type,shipment_id" });
         toast({ title: "Status updated", description: `${doc?.label} marked as ${newStatus}` });
       }
@@ -691,7 +715,7 @@ export default function DocumentationWorkshop() {
     generateAndPrintDocument(doc.id, previewRef, doc.label);
   };
 
-  // ── Finalize & Export: mark shipment as "Filed" ───────────────────────────
+  // ── Finalize & Export: sync all Ready docs first, then mark shipment as "Filed" ──
 
   const handleFinalizeAndExport = async () => {
     if (!shipmentId) return;
@@ -700,6 +724,32 @@ export default function DocumentationWorkshop() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
+      // 1. Sync all Ready documents to DB first
+      const readyDocs = checklist.filter((d) => statuses[d.id] === "Ready");
+      for (const doc of readyDocs) {
+        await supabase.from("shipment_documents").upsert({
+          user_id: user.id,
+          shipment_id: shipmentId,
+          document_type: doc.id,
+          document_label: doc.label,
+          target_market: targetMarket,
+          status: "Filed" as any,
+          generated_at: new Date().toISOString(),
+          metadata: {
+            hs_code: hsCode,
+            product_name: productName,
+            exporter_company: exporter.companyName,
+            consignee_company: consignee.companyName,
+            consignee_country: consignee.country,
+            quantity,
+            unit_price: unitPrice,
+            currency,
+            incoterm,
+          },
+        }, { onConflict: "user_id,document_type,shipment_id" });
+      }
+
+      // 2. Update shipment status to Filed
       const { error } = await supabase
         .from("shipments")
         .update({ status: "Filed" })
@@ -707,14 +757,16 @@ export default function DocumentationWorkshop() {
 
       if (error) throw error;
 
-      const readyDocs = checklist.filter((d) => statuses[d.id] === "Ready");
+      // 3. Update local manual statuses
+      const updatedManual: Record<string, DocStatus> = { ...manualStatuses };
       for (const doc of readyDocs) {
-        await handleStatusChange(doc.id, "Filed");
+        updatedManual[doc.id] = "Filed";
       }
+      setManualStatuses(updatedManual);
 
       toast({
         title: "✓ Shipment Filed",
-        description: "Shipment status updated to 'Filed'. All ready documents have been filed with PortNet.",
+        description: `Shipment status updated to 'Filed'. ${readyDocs.length} document(s) filed with PortNet.`,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to file shipment";
@@ -843,6 +895,16 @@ export default function DocumentationWorkshop() {
 
         {/* Stepper */}
         <WorkflowStepper currentStep={3} />
+
+        {/* Saving indicator */}
+        {syncingCount > 0 && (
+          <div className="rounded-xl border border-primary/20 bg-primary/6 px-4 py-3 flex items-center gap-3 animate-fade-in">
+            <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              Saving {syncingCount} document(s) to database…
+            </p>
+          </div>
+        )}
 
         {/* Loading state */}
         {(dbLoading || recoveryLoading) && (
@@ -998,7 +1060,7 @@ export default function DocumentationWorkshop() {
                               Required
                             </span>
                           )}
-                          {isSaving && <RefreshCw className="w-3 h-3 text-muted-foreground animate-spin" />}
+                          {isSaving && <Loader2 className="w-3 h-3 text-primary animate-spin" />}
                         </div>
                         <p className="text-xs font-medium text-foreground leading-tight truncate">{doc.label}</p>
                         <div className="flex items-center justify-between mt-2">
@@ -1125,7 +1187,7 @@ export default function DocumentationWorkshop() {
                       className="shrink-0 bg-success text-white hover:bg-success/90 h-10 text-sm font-semibold gap-2 shadow-md"
                     >
                       {filingShipment ? (
-                        <><RefreshCw className="w-4 h-4 animate-spin" /> Filing…</>
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Syncing & Filing…</>
                       ) : (
                         <><Send className="w-4 h-4" /> Finalize & Export</>
                       )}
