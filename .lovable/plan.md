@@ -1,119 +1,74 @@
-# Part 1: Multi-Modal Route Discovery + Part 2: Shipment Details Page
 
-This is a large feature set spanning two major additions: a Route Discovery module inside the Landed Cost Engine and a new Shipment Details page. Here is the implementation plan.
 
----
+# Major Functional Upgrade: Document Persistence, Shipment Management, and Archive
 
-## Part 1: Multi-Modal Route Discovery
-
-### 1.1 New Edge Function: `fetch-logistics-rates`
-
-Create `supabase/functions/fetch-logistics-rates/index.ts` that:
-
-- Accepts `{ origin_port, destination_market, e_factor }` in the request body
-- Returns a structured JSON array of transport options across 4 modes (Sea, Air, Road, Rail) with fields: `mode`, `provider`, `base_cost`, `transit_days`, `reliability_score`, `carbon_footprint`, `currency`
-- Uses simulated/seed data for providers (Maersk, CMA CGM for Sea; DHL, Royal Air Maroc for Air; Moroccan trucking for Road; ONCF for Rail)
-- Calls the Lovable AI Gateway (Gemini 3 Flash) to generate a "Strategic Advice" summary explaining the best route choice given the current E-Factor and weather conditions
-- If `e_factor > 1.2`, the AI prompt will include context about critical maritime risk so the recommendation favors alternatives
-- Returns both the `routes` array and a `strategic_advice` string
-
-Register in `supabase/config.toml` with `verify_jwt = false`.
-
-### 1.2 LandedCostEngine.tsx -- Route Discovery UI
-
-Add a collapsible "Route Discovery" section triggered by a "Find Routes" button next to the Freight (F) input field:
-
-- **Card Grid Layout**: Display route options as comparison cards (like flight search results), grouped by mode (Sea / Air / Road / Rail)
-- Each card shows: Provider Name, Price (USD), ETA (days), Reliability Score (percentage bar), Carbon Footprint
-- **Weather Warning Badge**: If E-Factor data is loaded and `multiplier > 1.2`, Sea cards get a red "Weather Warning" badge; Road/Air cards get a green "Qantara Recommended" badge
-- **Strategic Advice Box**: A highlighted card at the top showing the Gemini-generated recommendation text
-- **Route Selection**: Clicking a route card auto-fills the Freight (F) input field and triggers a recalculation of the Realistic Total
-- New state: `routeDiscoveryOpen`, `logisticsRates`, `routesLoading`, `selectedRoute`, `strategicAdvice`
-
-### 1.3 Data Flow
-
-When user clicks "Find Routes":
-
-1. Call `fetch-logistics-rates` edge function, passing the current E-Factor multiplier and port congestion level
-2. Display results in the card grid
-3. On card selection, update `freight` state which auto-persists to localStorage
-4. If cost was already calculated, re-run `handleCalculate` to refresh the comparison table
+This plan covers four areas: fixing document persistence, adding edit/delete for shipments, creating an AllShipments management page, and enabling document editing from the details view.
 
 ---
 
-## Part 2: Shipment Details Page 
+## 1. Fix Document Persistence (Finalize Logic)
 
-### 2.1 New Route and Page
+**Current state**: The DocumentationWorkshop already has working finalize logic (lines 720-777) that upserts Ready docs as "Filed" and updates shipment status. The auto-save on status change to Ready is also implemented (lines 611-654). ShipmentDetails already fetches from `shipment_documents` (line 99).
 
-- Create `src/pages/ShipmentDetails.tsx`
-- Add route `/shipments/:id` in `App.tsx`, wrapped with `AuthGuard`
+**Changes needed**:
+- **ShipmentDetails.tsx**: The "No documents" empty state (lines 337-346) should also show a "Generate Documents" prompt even when documents exist but none are Filed/Ready. Additionally, add metadata display -- when a document row is clicked, show the saved metadata (HS code, exporter, quantities) in a dialog or navigate to the Documentation Workshop for editing (covered in section 4).
 
-### 2.2 Data Fetching
+**Verdict**: The core persistence is already working. The main fix is improving the ShipmentDetails document display and adding edit capability.
 
-- Extract `id` from URL params using `useParams()`
-- Fetch from `shipments` table (single row by ID, scoped to user via RLS)
-- Fetch from `shipment_documents` table filtered by `shipment_id`
-- Fetch live E-Factor from `weather-efactor` edge function for the real-time weather snapshot
+---
 
-### 2.3 Four-Quadrant Layout
+## 2. Edit & Delete Functionality
 
-The page uses a 2x2 grid of white cards on the beige background:
+### 2.1 Delete Shipment
+- **ShipmentDetails.tsx**: Add a "Delete Shipment" button in the page header area that opens a Shadcn `AlertDialog` confirmation. On confirm, call `supabase.from('shipments').delete().eq('id', id)` and navigate back to Dashboard.
+- **Dashboard.tsx**: Add a delete action (small trash icon or context menu) on each shipment row. Same AlertDialog + delete logic.
 
-**Quadrant 1 -- Core Logistics Identity (top-left)**
+### 2.2 Edit Specifications
+- **ShipmentDetails.tsx**: Add an "Edit Specifications" button that navigates to `/landed-cost?shipment_id={id}&product_name={name}&hs_code={code}` to resume editing in the Landed Cost Engine.
 
-- Large Status Badge (color-coded: Draft=gray, Calculated=amber, Filed=green, Port-Transit=blue)
-- Product Name, HS Code, Origin Port (derived from weather data or "Casablanca" default), Destination Market
-- Created date, last updated
+---
 
-**Quadrant 2 -- Cost & Rate Summary (top-right)**
+## 3. "View All Shipments" Management Page
 
-- Full cost breakdown: V, F, I, D, T with E-Factor applied
-- Optimistic vs Realistic totals in a compact comparison
-- Selected transport mode info (if stored; otherwise "Not selected")
+### 3.1 New Page: `src/pages/AllShipments.tsx`
+- Full-featured shipment management table with:
+  - **Search bar**: Filter by product name or shipment ID (client-side filter)
+  - **Status filter**: Toggle group or dropdown for Draft / Calculated / Filed / Port-Transit / Delivered
+  - **Sort options**: Created Date (newest/oldest), Total Cost, Total Weight
+  - **Delete action**: Per-row delete with AlertDialog confirmation
+  - **Click to navigate**: Each row links to `/shipments/{id}`
 
-**Quadrant 3 -- E-Factor & Weather Snapshot (bottom-left)**
+### 3.2 Sidebar Update (`AppSidebar.tsx`)
+- Add "Archive" item to the `otherItems` array with `Archive` icon and `/shipments` URL
 
-- Real-time port weather cards (same style as LCE) for the 3 Moroccan ports
-- E-Factor multiplier display with contribution breakdown
-- Port congestion and storm risk badges
+### 3.3 Route Registration (`App.tsx`)
+- Add `/shipments` route pointing to `AllShipments`, wrapped in `AuthGuard`
 
-**Quadrant 4 -- Compliance & Documents (bottom-right)**
+### 3.4 Dashboard Update (`Dashboard.tsx`)
+- Limit the "All Shipments" section to show only the 5 most recent (change `.slice(0, 10)` on line 316 to `.slice(0, 5)`)
+- Add a "View All →" button that links to `/shipments`
 
-- Checklist of documents from `shipment_documents` with status icons (Missing/Draft/Ready/Filed)
-- Progress bar showing ready count vs total
-- Placeholder for "AI-enhanced product image" from Authenticity Studio
+---
 
-### 2.4 Strategic Alert Banner
+## 4. Document Editing from Detail View
 
-If shipment status is "Draft" or "Calculated" and current live E-Factor > 1.2:
-
-- Display a full-width warning banner at the top: "STRATEGIC ALERT: High transit risk detected..."
-- Include a "Resume Workflow" button that navigates to the correct step based on status (Draft -> LCE, Calculated -> Documentation Workshop)
-
-### 2.5 Dashboard Integration
-
-- Make shipment rows in `Dashboard.tsx` clickable, navigating to `/shipments/{id}`
-- Add cursor-pointer styling and an onClick handler to each shipment row
-
-### 2.6 Styling
-
-- Navy Blue headers (#1B263B), Background Beige (#F5EBE0) -- already in the design system
-- White cards with subtle shadows (`shadow-card` class already exists)
-- Consistent with the existing `AppLayout` wrapper
+- **ShipmentDetails.tsx**: Add an "Edit" icon (pencil) next to each document in the Q4 checklist. Clicking navigates to `/documentation-workshop?shipment_id={id}&hs_code={code}&product_name={name}&doc_type={document_type}`.
+- **DocumentationWorkshop.tsx**: Read a `doc_type` URL param. If present, auto-select that document in the checklist on load so the user lands directly on the relevant document form.
 
 ---
 
 ## Technical Summary
 
+| Change | File | Action |
+|--------|------|--------|
+| Delete shipment + Edit specs buttons | `src/pages/ShipmentDetails.tsx` | Edit |
+| Document edit icons in Q4 | `src/pages/ShipmentDetails.tsx` | Edit |
+| Delete action on rows | `src/pages/Dashboard.tsx` | Edit |
+| Limit to 5 + "View All" link | `src/pages/Dashboard.tsx` | Edit |
+| New management page | `src/pages/AllShipments.tsx` | Create |
+| Add Archive to sidebar | `src/components/AppSidebar.tsx` | Edit |
+| Register `/shipments` route | `src/App.tsx` | Edit |
+| Read `doc_type` param, auto-select | `src/pages/DocumentationWorkshop.tsx` | Edit |
 
-| Change             | File                                                |
-| ------------------ | --------------------------------------------------- |
-| New edge function  | `supabase/functions/fetch-logistics-rates/index.ts` |
-| Register function  | `supabase/config.toml`                              |
-| Route Discovery UI | `src/pages/LandedCostEngine.tsx`                    |
-| New details page   | `src/pages/ShipmentDetails.tsx`                     |
-| New route + import | `src/App.tsx`                                       |
-| Clickable rows     | `src/pages/Dashboard.tsx`                           |
+No database schema changes required -- all tables, columns, and RLS policies are already in place. The `shipments` table has a DELETE RLS policy (`Users can delete their own shipments`).
 
-
-No database schema changes are required -- all needed tables and columns already exist.
