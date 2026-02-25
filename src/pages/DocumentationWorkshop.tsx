@@ -641,13 +641,16 @@ export default function DocumentationWorkshop() {
             metadata: {
               hs_code: hsCode,
               product_name: productName,
-              exporter_company: exporter.companyName,
-              consignee_company: consignee.companyName,
-              consignee_country: consignee.country,
+              exporter: { ...exporter },
+              consignee: { ...consignee },
               quantity,
               unit_price: unitPrice,
               currency,
               incoterm,
+              invoice_no: invoiceNo,
+              invoice_date: invoiceDate,
+              freight,
+              product_value: productValue,
             },
           }, { onConflict: "user_id,document_type,shipment_id" });
         }
@@ -701,13 +704,16 @@ export default function DocumentationWorkshop() {
           metadata: {
             hs_code: hsCode,
             product_name: productName,
-            exporter_company: exporter.companyName,
-            consignee_company: consignee.companyName,
-            consignee_country: consignee.country,
+            exporter: { ...exporter },
+            consignee: { ...consignee },
             quantity,
             unit_price: unitPrice,
             currency,
             incoterm,
+            invoice_no: invoiceNo,
+            invoice_date: invoiceDate,
+            freight,
+            product_value: productValue,
           },
         }, { onConflict: "user_id,document_type,shipment_id" });
         toast({ title: "Status updated", description: `${doc?.label} marked as ${newStatus}` });
@@ -729,29 +735,37 @@ export default function DocumentationWorkshop() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      // 1. Sync all Ready documents to DB first
-      const readyDocs = checklist.filter((d) => statuses[d.id] === "Ready");
-      for (const doc of readyDocs) {
+      const fullFormMetadata = {
+        hs_code: hsCode,
+        product_name: productName,
+        exporter: { ...exporter },
+        consignee: { ...consignee },
+        quantity,
+        unit_price: unitPrice,
+        currency,
+        incoterm,
+        invoice_no: invoiceNo,
+        invoice_date: invoiceDate,
+        freight,
+        product_value: productValue,
+      };
+
+      // 1. Upsert ALL documents in the checklist with full form data
+      let filedCount = 0;
+      for (const doc of checklist) {
+        const currentStatus = statuses[doc.id];
+        const newStatus = (currentStatus === "Ready" || currentStatus === "Filed") ? "Filed" : currentStatus;
         await supabase.from("shipment_documents").upsert({
           user_id: user.id,
           shipment_id: shipmentId,
           document_type: doc.id,
           document_label: doc.label,
           target_market: targetMarket,
-          status: "Filed" as any,
-          generated_at: new Date().toISOString(),
-          metadata: {
-            hs_code: hsCode,
-            product_name: productName,
-            exporter_company: exporter.companyName,
-            consignee_company: consignee.companyName,
-            consignee_country: consignee.country,
-            quantity,
-            unit_price: unitPrice,
-            currency,
-            incoterm,
-          },
+          status: newStatus as any,
+          generated_at: newStatus === "Filed" ? new Date().toISOString() : null,
+          metadata: fullFormMetadata,
         }, { onConflict: "user_id,document_type,shipment_id" });
+        if (newStatus === "Filed") filedCount++;
       }
 
       // 2. Update shipment status to Filed
@@ -764,14 +778,17 @@ export default function DocumentationWorkshop() {
 
       // 3. Update local manual statuses
       const updatedManual: Record<string, DocStatus> = { ...manualStatuses };
-      for (const doc of readyDocs) {
-        updatedManual[doc.id] = "Filed";
+      for (const doc of checklist) {
+        const currentStatus = statuses[doc.id];
+        if (currentStatus === "Ready" || currentStatus === "Filed") {
+          updatedManual[doc.id] = "Filed";
+        }
       }
       setManualStatuses(updatedManual);
 
       toast({
         title: "✓ Shipment Filed",
-        description: `Shipment status updated to 'Filed'. ${readyDocs.length} document(s) filed with PortNet.`,
+        description: `Shipment status updated to 'Filed'. ${filedCount} document(s) filed, ${checklist.length - filedCount} saved as draft.`,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to file shipment";

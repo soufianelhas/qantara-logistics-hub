@@ -49,6 +49,9 @@ interface ShipmentDocument {
   document_type: string;
   status: DocumentStatus;
   file_path: string | null;
+  metadata: Record<string, any> | null;
+  generated_at: string | null;
+  updated_at: string;
 }
 
 interface PortWeather {
@@ -104,7 +107,7 @@ export default function ShipmentDetails() {
       setLoading(true);
       const [shipRes, docRes] = await Promise.all([
         supabase.from("shipments").select("*").eq("id", id).single(),
-        supabase.from("shipment_documents").select("id, document_label, document_type, status, file_path").eq("shipment_id", id),
+        supabase.from("shipment_documents").select("id, document_label, document_type, status, file_path, metadata, generated_at, updated_at").eq("shipment_id", id),
       ]);
       if (shipRes.data) setShipment(shipRes.data as unknown as Shipment);
       if (docRes.data) setDocuments(docRes.data as unknown as ShipmentDocument[]);
@@ -389,24 +392,44 @@ export default function ShipmentDetails() {
                       const docStatus = doc.status as DocumentStatus;
                       const statusInfo = DOC_STATUS_ICON[docStatus] || DOC_STATUS_ICON.Missing;
                       const Icon = statusInfo.icon;
+                      const meta = doc.metadata as Record<string, any> | null;
                       return (
-                        <div key={doc.id} className="flex items-center gap-2 text-xs group">
-                          <Icon className={cn("w-3.5 h-3.5", statusInfo.color)} />
-                          <span className="flex-1 text-foreground">{doc.document_label}</span>
-                          <button
-                            onClick={() => handleEditDocument(doc)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
-                            title="Edit document"
-                          >
-                            <Pencil className="w-3 h-3 text-muted-foreground hover:text-primary" />
-                          </button>
-                          <Badge variant="outline" className={cn("text-[9px]", statusInfo.color)}>
-                            {docStatus}
-                          </Badge>
+                        <div key={doc.id} className="rounded-lg border border-border p-2.5 group hover:bg-muted/30 transition-colors">
+                          <div className="flex items-center gap-2 text-xs">
+                            <Icon className={cn("w-3.5 h-3.5 shrink-0", statusInfo.color)} />
+                            <span className="flex-1 font-medium text-foreground">{doc.document_label}</span>
+                            <button
+                              onClick={() => handleEditDocument(doc)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+                              title="Edit document"
+                            >
+                              <Pencil className="w-3 h-3 text-muted-foreground hover:text-primary" />
+                            </button>
+                            <Badge variant="outline" className={cn("text-[9px]", statusInfo.color)}>
+                              {docStatus}
+                            </Badge>
+                          </div>
+                          {meta && (
+                            <div className="mt-1.5 pl-5.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+                              {meta.hs_code && <span>HS: {meta.hs_code}</span>}
+                              {(meta.exporter?.companyName || meta.exporter_company) && (
+                                <span>Exp: {meta.exporter?.companyName || meta.exporter_company}</span>
+                              )}
+                              {meta.quantity && <span>Qty: {meta.quantity}</span>}
+                              {doc.generated_at && (
+                                <span>Filed: {new Date(doc.generated_at).toLocaleDateString("en-GB")}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
                   </div>
+                  {(status === "Draft" || status === "Calculated") && (
+                    <Button variant="outline" size="sm" className="w-full text-xs mt-2" onClick={() => navigate(`/documentation-workshop?${resumeParams.toString()}`)}>
+                      Open Documentation Workshop <ArrowRight className="w-3 h-3" />
+                    </Button>
+                  )}
                 </>
               ) : (
                 <div className="text-center py-4">
