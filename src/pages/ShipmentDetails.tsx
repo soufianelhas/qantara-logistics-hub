@@ -6,12 +6,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Ship, AlertTriangle, Wind, Eye, Thermometer, Anchor, CloudLightning,
   TrendingUp, FileText, CheckCircle2, Clock, ArrowRight, RefreshCw,
-  Package, MapPin, Calendar, Leaf,
+  Package, MapPin, Calendar, Leaf, Trash2, Edit3, Pencil,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 type ShipmentStatus = "Draft" | "Calculated" | "Filed" | "Port-Transit" | "Delivered";
 type DocumentStatus = "Missing" | "Draft" | "Ready" | "Filed";
@@ -85,10 +91,12 @@ function fmt(n: number) {
 export default function ShipmentDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [shipment, setShipment] = useState<Shipment | null>(null);
   const [documents, setDocuments] = useState<ShipmentDocument[]>([]);
   const [eFactor, setEFactor] = useState<EFactorData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -101,7 +109,6 @@ export default function ShipmentDetails() {
       if (shipRes.data) setShipment(shipRes.data as unknown as Shipment);
       if (docRes.data) setDocuments(docRes.data as unknown as ShipmentDocument[]);
 
-      // Fetch live E-Factor
       try {
         const { data } = await supabase.functions.invoke("weather-efactor");
         if (data && !data.error) setEFactor(data as EFactorData);
@@ -110,6 +117,21 @@ export default function ShipmentDetails() {
     };
     fetchAll();
   }, [id]);
+
+  const handleDelete = async () => {
+    if (!id) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.from("shipments").delete().eq("id", id);
+      if (error) throw error;
+      toast({ title: "Shipment deleted", description: "Shipment has been permanently removed." });
+      navigate("/");
+    } catch (err: unknown) {
+      toast({ title: "Delete failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -146,9 +168,54 @@ export default function ShipmentDetails() {
   const resumeParams = new URLSearchParams({ shipment_id: shipment.id, product_name: shipment.product_name });
   if (shipment.hs_code_assigned) resumeParams.set("hs_code", shipment.hs_code_assigned);
 
+  const editSpecsUrl = `/landed-cost?shipment_id=${shipment.id}&product_name=${encodeURIComponent(shipment.product_name)}${shipment.hs_code_assigned ? `&hs_code=${shipment.hs_code_assigned}` : ""}`;
+
+  const handleEditDocument = (doc: ShipmentDocument) => {
+    const params = new URLSearchParams({
+      shipment_id: shipment.id,
+      product_name: shipment.product_name,
+      doc_type: doc.document_type,
+    });
+    if (shipment.hs_code_assigned) params.set("hs_code", shipment.hs_code_assigned);
+    navigate(`/documentation-workshop?${params.toString()}`);
+  };
+
   return (
     <AppLayout title="Shipment Details" subtitle={shipment.product_name}>
       <div className="max-w-6xl mx-auto space-y-6">
+
+        {/* Action Bar */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => navigate("/")} className="text-xs">
+            ← Back to Dashboard
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => navigate(editSpecsUrl)}>
+              <Edit3 className="w-3.5 h-3.5" /> Edit Specifications
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="text-xs gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10">
+                  <Trash2 className="w-3.5 h-3.5" /> Delete Shipment
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this shipment?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete "{shipment.product_name}" and all associated documents. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    {deleting ? "Deleting…" : "Delete"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
 
         {/* Strategic Alert Banner */}
         {showAlert && (
@@ -323,11 +390,18 @@ export default function ShipmentDetails() {
                       const statusInfo = DOC_STATUS_ICON[docStatus] || DOC_STATUS_ICON.Missing;
                       const Icon = statusInfo.icon;
                       return (
-                        <div key={doc.id} className="flex items-center gap-2 text-xs">
+                        <div key={doc.id} className="flex items-center gap-2 text-xs group">
                           <Icon className={cn("w-3.5 h-3.5", statusInfo.color)} />
                           <span className="flex-1 text-foreground">{doc.document_label}</span>
+                          <button
+                            onClick={() => handleEditDocument(doc)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+                            title="Edit document"
+                          >
+                            <Pencil className="w-3 h-3 text-muted-foreground hover:text-primary" />
+                          </button>
                           <Badge variant="outline" className={cn("text-[9px]", statusInfo.color)}>
-                            {docStatus === "Ready" || docStatus === "Filed" ? docStatus : docStatus}
+                            {docStatus}
                           </Badge>
                         </div>
                       );
@@ -347,13 +421,6 @@ export default function ShipmentDetails() {
               )}
             </CardContent>
           </Card>
-        </div>
-
-        {/* Back button */}
-        <div className="flex justify-center">
-          <Button variant="outline" onClick={() => navigate("/")} className="text-xs">
-            ← Back to Dashboard
-          </Button>
         </div>
       </div>
     </AppLayout>

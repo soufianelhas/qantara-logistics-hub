@@ -497,6 +497,7 @@ export default function DocumentationWorkshop() {
   const paramProductValue = parseFloat(searchParams.get("product_value") || "0");
   const paramFreight     = parseFloat(searchParams.get("freight") || "0");
   const urlShipmentId    = searchParams.get("shipment_id") || null;
+  const paramDocType     = searchParams.get("doc_type") || null;
   const fromLCE          = searchParams.get("from") === "lce";
 
   // ── Smart shipment recovery — accept Draft or Calculated ────────────────
@@ -587,7 +588,11 @@ export default function DocumentationWorkshop() {
     if (!hsCode) return;
     const docs = buildChecklist(hsCode, targetMarket);
     setChecklist(docs);
-    if (docs.length > 0 && !selectedDocId) setSelectedDocId(docs[0].id);
+    if (paramDocType && docs.find(d => d.id === paramDocType)) {
+      setSelectedDocId(paramDocType);
+    } else if (docs.length > 0 && !selectedDocId) {
+      setSelectedDocId(docs[0].id);
+    }
   }, [hsCode, targetMarket]);
 
   // ── Reactive auto-status computation ──────────────────────────────────────
