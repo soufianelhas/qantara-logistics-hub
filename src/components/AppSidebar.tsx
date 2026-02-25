@@ -43,8 +43,8 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        "relative flex flex-col min-h-screen transition-all duration-300 ease-in-out",
-        "border-r border-navy-light/30",
+        "relative flex flex-col sticky top-0 h-screen transition-all duration-300 ease-in-out",
+        "border-r border-sidebar-border",
         collapsed ? "w-16" : "w-60"
       )}
       style={{ background: "var(--gradient-sidebar)" }}

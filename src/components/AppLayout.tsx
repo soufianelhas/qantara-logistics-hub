@@ -11,9 +11,9 @@ export function AppLayout({ children, title, subtitle }: AppLayoutProps) {
   return (
     <div className="flex min-h-screen w-full bg-background">
       <AppSidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-auto h-screen">
         {/* Top bar */}
-        <header className="h-16 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-10">
+        <header className="h-16 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-50">
           <div>
             <h1 className="text-base font-semibold text-foreground tracking-tight">
               {title}
