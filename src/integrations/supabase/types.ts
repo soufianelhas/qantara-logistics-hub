@@ -38,6 +38,39 @@ export type Database = {
         }
         Relationships: []
       }
+      clients: {
+        Row: {
+          address: string | null
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          phone: string | null
+          tax_id: string | null
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          phone?: string | null
+          tax_id?: string | null
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          phone?: string | null
+          tax_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       shipment_documents: {
         Row: {
           created_at: string
@@ -93,6 +126,8 @@ export type Database = {
       }
       shipments: {
         Row: {
+          agency_fee: number
+          client_id: string | null
           created_at: string
           destination_city: string | null
           duty: number
@@ -100,6 +135,7 @@ export type Database = {
           freight: number
           hs_code_assigned: string | null
           id: string
+          incoterm: string
           insurance: number
           notes: string | null
           origin_city: string | null
@@ -114,6 +150,8 @@ export type Database = {
           weather_risk_level: string | null
         }
         Insert: {
+          agency_fee?: number
+          client_id?: string | null
           created_at?: string
           destination_city?: string | null
           duty?: number
@@ -121,6 +159,7 @@ export type Database = {
           freight?: number
           hs_code_assigned?: string | null
           id?: string
+          incoterm?: string
           insurance?: number
           notes?: string | null
           origin_city?: string | null
@@ -135,6 +174,8 @@ export type Database = {
           weather_risk_level?: string | null
         }
         Update: {
+          agency_fee?: number
+          client_id?: string | null
           created_at?: string
           destination_city?: string | null
           duty?: number
@@ -142,6 +183,7 @@ export type Database = {
           freight?: number
           hs_code_assigned?: string | null
           id?: string
+          incoterm?: string
           insurance?: number
           notes?: string | null
           origin_city?: string | null
@@ -155,7 +197,15 @@ export type Database = {
           user_id?: string
           weather_risk_level?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "shipments_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

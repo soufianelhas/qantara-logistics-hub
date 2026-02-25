@@ -3,21 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { AppLayout } from "@/components/AppLayout";
 import {
-  Ship,
-  AlertTriangle,
-  TrendingUp,
-  Clock,
-  CheckCircle2,
-  ArrowRight,
-  Zap,
-  Brain,
-  Calculator,
-  FileText,
-  X,
-  TrendingDown,
-  RefreshCw,
-  Package,
-  Trash2,
+  Ship, AlertTriangle, TrendingUp, Clock, CheckCircle2, ArrowRight,
+  Zap, Brain, Calculator, FileText, X, TrendingDown, RefreshCw,
+  Package, Trash2, Users, DollarSign,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,27 +17,16 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
 type ShipmentStatus = "Draft" | "Calculated" | "Filed" | "Port-Transit" | "Delivered";
 
 interface LiveShipment {
-  id: string;
-  product_name: string;
-  hs_code_assigned: string | null;
-  status: ShipmentStatus;
-  e_factor_multiplier: number;
-  raw_cost_v: number;
-  freight: number;
-  insurance: number;
-  duty: number;
-  taxes: number;
-  created_at: string;
-  port_congestion_level: string | null;
-  weather_risk_level: string | null;
+  id: string; product_name: string; hs_code_assigned: string | null;
+  status: ShipmentStatus; e_factor_multiplier: number;
+  raw_cost_v: number; freight: number; insurance: number; duty: number; taxes: number;
+  created_at: string; port_congestion_level: string | null; weather_risk_level: string | null;
+  client_id: string | null; agency_fee: number; incoterm: string;
+  client_name?: string;
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const E_CRITICAL = 1.2;
 
@@ -77,20 +54,20 @@ function fmtCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-// ── Main Component ───────────────────────────────────────────────────────────
-
 export default function Dashboard() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [shipments, setShipments]           = useState<LiveShipment[]>([]);
+  const [shipments, setShipments] = useState<LiveShipment[]>([]);
   const [loadingShipments, setLoadingShipments] = useState(true);
-  const [eFactorValue, setEFactorValue]     = useState<number | null>(null);
+  const [eFactorValue, setEFactorValue] = useState<number | null>(null);
   const [alertDismissed, setAlertDismissed] = useState(false);
 
-  // KPIs
-  const [kpis, setKpis] = useState({ avgEFactor: 0, totalSavings: 0, calculatedCount: 0, totalShipments: 0, filedCount: 0, avgTransitDays: 0 });
+  const [kpis, setKpis] = useState({
+    avgEFactor: 0, totalSavings: 0, calculatedCount: 0, totalShipments: 0,
+    filedCount: 0, avgTransitDays: 0, projectedRevenue: 0, clientCount: 0,
+  });
 
   useEffect(() => {
     const stored = localStorage.getItem("qantara_efactor");
@@ -104,27 +81,48 @@ export default function Dashboard() {
 
         const { data } = await supabase
           .from("shipments")
-          .select("id, product_name, hs_code_assigned, status, e_factor_multiplier, raw_cost_v, freight, insurance, duty, taxes, created_at, port_congestion_level, weather_risk_level")
+          .select("id, product_name, hs_code_assigned, status, e_factor_multiplier, raw_cost_v, freight, insurance, duty, taxes, created_at, port_congestion_level, weather_risk_level, client_id, agency_fee, incoterm")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false })
           .limit(50);
 
-        if (data) {
-          setShipments(data as LiveShipment[]);
+        // Get client names
+        const { data: clientsData } = await supabase
+          .from("clients")
+          .select("id, name")
+          .eq("user_id", user.id);
 
-          const calculated = data.filter((s) => s.status === "Calculated" || s.status === "Filed");
+        const clientMap: Record<string, string> = {};
+        clientsData?.forEach((c: any) => { clientMap[c.id] = c.name; });
+
+        // Get unique client count
+        const clientCount = clientsData?.length || 0;
+
+        if (data) {
+          const enriched = data.map((s: any) => ({
+            ...s,
+            client_name: s.client_id ? clientMap[s.client_id] || null : null,
+          }));
+          setShipments(enriched as LiveShipment[]);
+
+          const calculated = data.filter((s: any) => s.status === "Calculated" || s.status === "Filed");
           const avgE = calculated.length > 0
-            ? calculated.reduce((sum, s) => sum + s.e_factor_multiplier, 0) / calculated.length : 0;
-          const totalSavings = calculated.reduce((sum, s) => {
+            ? calculated.reduce((sum: number, s: any) => sum + s.e_factor_multiplier, 0) / calculated.length : 0;
+          const totalSavings = calculated.reduce((sum: number, s: any) => {
             const base = s.raw_cost_v + s.freight + s.insurance + s.duty + s.taxes;
-            const realistic = base * s.e_factor_multiplier;
-            return sum + Math.max(0, realistic - base);
+            return sum + Math.max(0, base * s.e_factor_multiplier - base);
           }, 0);
-          const filed = data.filter(s => s.status === "Filed" || s.status === "Port-Transit" || s.status === "Delivered").length;
+          const filed = data.filter((s: any) => ["Filed", "Port-Transit", "Delivered"].includes(s.status)).length;
+
+          // Projected revenue: sum of agency_fee from active (non-Delivered) shipments
+          const projectedRevenue = data
+            .filter((s: any) => s.status !== "Delivered")
+            .reduce((sum: number, s: any) => sum + (s.agency_fee || 0), 0);
 
           setKpis({
             avgEFactor: avgE, totalSavings, calculatedCount: calculated.length,
             totalShipments: data.length, filedCount: filed, avgTransitDays: 6.2,
+            projectedRevenue, clientCount,
           });
         }
       } catch (e) {
@@ -154,7 +152,6 @@ export default function Dashboard() {
   const isCriticalRisk = eFactorValue !== null && eFactorValue > E_CRITICAL && !alertDismissed;
   const recentInProgress = shipments.filter((s) => s.status === "Draft" || s.status === "Calculated").slice(0, 3);
 
-  // Risk alerts derived from real shipment data
   const riskAlerts = shipments
     .filter(s => s.e_factor_multiplier > 1.1)
     .slice(0, 3)
@@ -183,15 +180,9 @@ export default function Dashboard() {
               <p className="text-sm font-bold text-foreground">⚠ Logistics Risk Critical — E-Factor ×{eFactorValue?.toFixed(4)}</p>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 High winds / port congestion at <strong className="text-foreground">Tanger Med / Casablanca</strong>.
-                Products flagged in Authenticity Studio. Consider pausing marketing promotions.
               </p>
               <div className="flex items-center gap-3 mt-2">
-                <Button size="sm" variant="outline" className="text-xs h-7 border-warning/40 text-warning hover:bg-warning/10"
-                  onClick={() => navigate("/authenticity-studio")}>
-                  View Authenticity Studio <ArrowRight className="w-3 h-3" />
-                </Button>
-                <Button size="sm" variant="outline" className="text-xs h-7 border-warning/40 text-warning hover:bg-warning/10"
-                  onClick={() => navigate("/landed-cost")}>
+                <Button size="sm" variant="outline" className="text-xs h-7 border-warning/40 text-warning hover:bg-warning/10" onClick={() => navigate("/landed-cost")}>
                   Recalculate Cost
                 </Button>
               </div>
@@ -203,12 +194,14 @@ export default function Dashboard() {
         )}
 
         {/* Live KPI cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {[
             { label: "Total Shipments", value: String(kpis.totalShipments), icon: Ship, delta: `${kpis.filedCount} filed` },
             { label: "Customs Filed", value: String(kpis.filedCount), icon: CheckCircle2, delta: "This period" },
             { label: "Avg Transit Days", value: kpis.avgTransitDays.toFixed(1), icon: Clock, delta: "Estimated" },
             { label: "Calculated Value", value: fmtCurrency(kpis.totalSavings > 0 ? kpis.totalSavings * 10 : 0), icon: TrendingUp, delta: "Risk-adjusted" },
+            { label: "Projected Revenue", value: fmtCurrency(kpis.projectedRevenue), icon: DollarSign, delta: "Agency fees" },
+            { label: "Client Portfolio", value: String(kpis.clientCount), icon: Users, delta: "Active clients" },
           ].map((stat, i) => (
             <div key={stat.label} className="bg-card rounded-lg border border-border p-4 shadow-card hover:shadow-elevated transition-shadow"
               style={{ animationDelay: `${i * 60}ms` }}>
@@ -238,9 +231,7 @@ export default function Dashboard() {
                   kpis.avgEFactor > E_CRITICAL ? "text-risk-high" : kpis.avgEFactor > 1.1 ? "text-warning" : "text-success")}>
                   ×{kpis.avgEFactor.toFixed(4)}
                 </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Across {kpis.calculatedCount} calculated shipment{kpis.calculatedCount !== 1 ? "s" : ""}
-                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">Across {kpis.calculatedCount} calculated shipments</p>
               </div>
             </div>
             <div className="bg-card rounded-lg border border-border p-4 shadow-card flex items-start gap-4">
@@ -277,6 +268,7 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="text-xs font-mono font-medium text-primary truncate max-w-[180px]">{s.id.slice(0, 8)}…</span>
                         <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full border", getStatusBadge(s.status))}>{s.status}</span>
+                        {s.client_name && <span className="text-[10px] text-muted-foreground">· {s.client_name}</span>}
                       </div>
                       <p className="text-sm font-medium text-foreground truncate">{s.product_name}</p>
                       {s.hs_code_assigned && (
@@ -310,21 +302,13 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <Package className="w-4 h-4 text-primary" />
                 <h2 className="text-sm font-semibold text-foreground">Recent Shipments</h2>
-                <span className="text-xs bg-primary/10 text-primary border border-primary/15 px-2 py-0.5 rounded-full font-medium">
-                  {shipments.length}
-                </span>
+                <span className="text-xs bg-primary/10 text-primary border border-primary/15 px-2 py-0.5 rounded-full font-medium">{shipments.length}</span>
               </div>
               <div className="flex items-center gap-3">
                 {shipments.length > 5 && (
-                  <button className="text-xs text-primary hover:text-primary/80 transition-colors font-medium"
-                    onClick={() => navigate("/shipments")}>
-                    View All →
-                  </button>
+                  <button className="text-xs text-primary hover:text-primary/80 transition-colors font-medium" onClick={() => navigate("/shipments")}>View All →</button>
                 )}
-                <button className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium"
-                  onClick={() => navigate("/hs-navigator")}>
-                  New Shipment →
-                </button>
+                <button className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium" onClick={() => navigate("/hs-navigator")}>New Shipment →</button>
               </div>
             </div>
             <div className="divide-y divide-border">
@@ -333,15 +317,12 @@ export default function Dashboard() {
                   <Ship className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-sm font-medium text-foreground">No shipments yet</p>
                   <p className="text-xs text-muted-foreground mt-1">Start by classifying a product in the HS Navigator</p>
-                  <Button size="sm" className="mt-3" onClick={() => navigate("/hs-navigator")}>
-                    <Brain className="w-3.5 h-3.5" /> Start Classification
-                  </Button>
+                  <Button size="sm" className="mt-3" onClick={() => navigate("/hs-navigator")}><Brain className="w-3.5 h-3.5" /> Start Classification</Button>
                 </div>
               )}
               {loadingShipments && (
                 <div className="px-5 py-8 flex items-center justify-center gap-2">
-                  <RefreshCw className="w-4 h-4 text-primary animate-spin" />
-                  <span className="text-xs text-muted-foreground">Loading shipments…</span>
+                  <RefreshCw className="w-4 h-4 text-primary animate-spin" /><span className="text-xs text-muted-foreground">Loading shipments…</span>
                 </div>
               )}
               {shipments.slice(0, 5).map((s) => {
@@ -353,15 +334,14 @@ export default function Dashboard() {
                         <span className="text-xs font-mono font-medium text-primary">{s.id.slice(0, 8)}…</span>
                         <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full border", getStatusBadge(s.status))}>{s.status}</span>
                         {s.e_factor_multiplier > 1.1 && (
-                          <Badge variant="outline" className="text-[9px] border-warning/30 text-warning">
-                            E×{s.e_factor_multiplier.toFixed(2)}
-                          </Badge>
+                          <Badge variant="outline" className="text-[9px] border-warning/30 text-warning">E×{s.e_factor_multiplier.toFixed(2)}</Badge>
                         )}
                       </div>
                       <p className="text-sm font-medium text-foreground truncate">{s.product_name}</p>
                       <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                         {s.hs_code_assigned && <span>HS <strong className="text-foreground">{s.hs_code_assigned}</strong></span>}
                         {totalCost > 0 && <span>{fmtCurrency(totalCost * s.e_factor_multiplier)}</span>}
+                        {s.client_name && <span className="text-primary/70">· {s.client_name}</span>}
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
