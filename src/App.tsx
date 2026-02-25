@@ -9,6 +9,7 @@ import HSNeuralNavigator from "./pages/HSNeuralNavigator";
 import AuthenticityStudio from "./pages/AuthenticityStudio";
 import DocumentationWorkshop from "./pages/DocumentationWorkshop";
 import ShipmentDetails from "./pages/ShipmentDetails";
+import AllShipments from "./pages/AllShipments";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 import { AuthGuard } from "./components/AuthGuard";
@@ -28,6 +29,7 @@ const App = () => (
           <Route path="/hs-navigator" element={<AuthGuard><HSNeuralNavigator /></AuthGuard>} />
           <Route path="/authenticity-studio" element={<AuthGuard><AuthenticityStudio /></AuthGuard>} />
           <Route path="/documentation-workshop" element={<AuthGuard><DocumentationWorkshop /></AuthGuard>} />
+          <Route path="/shipments" element={<AuthGuard><AllShipments /></AuthGuard>} />
           <Route path="/shipments/:id" element={<AuthGuard><ShipmentDetails /></AuthGuard>} />
           <Route path="*" element={<NotFound />} />
         </Routes>

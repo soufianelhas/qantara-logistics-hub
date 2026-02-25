@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useToast } from "@/hooks/use-toast";
 import { AppLayout } from "@/components/AppLayout";
 import {
   Ship,
@@ -16,11 +17,17 @@ import {
   TrendingDown,
   RefreshCw,
   Package,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,6 +81,8 @@ function fmtCurrency(n: number) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [shipments, setShipments]           = useState<LiveShipment[]>([]);
   const [loadingShipments, setLoadingShipments] = useState(true);
@@ -127,6 +136,20 @@ export default function Dashboard() {
 
     fetchShipments();
   }, []);
+
+  const handleDeleteShipment = async (shipmentId: string) => {
+    setDeletingId(shipmentId);
+    try {
+      const { error } = await supabase.from("shipments").delete().eq("id", shipmentId);
+      if (error) throw error;
+      setShipments(prev => prev.filter(s => s.id !== shipmentId));
+      toast({ title: "Shipment deleted" });
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const isCriticalRisk = eFactorValue !== null && eFactorValue > E_CRITICAL && !alertDismissed;
   const recentInProgress = shipments.filter((s) => s.status === "Draft" || s.status === "Calculated").slice(0, 3);
@@ -286,15 +309,23 @@ export default function Dashboard() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <div className="flex items-center gap-2">
                 <Package className="w-4 h-4 text-primary" />
-                <h2 className="text-sm font-semibold text-foreground">All Shipments</h2>
+                <h2 className="text-sm font-semibold text-foreground">Recent Shipments</h2>
                 <span className="text-xs bg-primary/10 text-primary border border-primary/15 px-2 py-0.5 rounded-full font-medium">
                   {shipments.length}
                 </span>
               </div>
-              <button className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium"
-                onClick={() => navigate("/hs-navigator")}>
-                New Shipment →
-              </button>
+              <div className="flex items-center gap-3">
+                {shipments.length > 5 && (
+                  <button className="text-xs text-primary hover:text-primary/80 transition-colors font-medium"
+                    onClick={() => navigate("/shipments")}>
+                    View All →
+                  </button>
+                )}
+                <button className="text-xs text-muted-foreground hover:text-primary transition-colors font-medium"
+                  onClick={() => navigate("/hs-navigator")}>
+                  New Shipment →
+                </button>
+              </div>
             </div>
             <div className="divide-y divide-border">
               {shipments.length === 0 && !loadingShipments && (
@@ -313,32 +344,49 @@ export default function Dashboard() {
                   <span className="text-xs text-muted-foreground">Loading shipments…</span>
                 </div>
               )}
-              {shipments.slice(0, 10).map((s) => {
+              {shipments.slice(0, 5).map((s) => {
                 const totalCost = s.raw_cost_v + s.freight + s.insurance + s.duty + s.taxes;
                 return (
-                  <div key={s.id} className="px-5 py-4 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => navigate(`/shipments/${s.id}`)}>
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-mono font-medium text-primary">{s.id.slice(0, 8)}…</span>
-                          <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full border", getStatusBadge(s.status))}>{s.status}</span>
-                          {s.e_factor_multiplier > 1.1 && (
-                            <Badge variant="outline" className="text-[9px] border-warning/30 text-warning">
-                              E×{s.e_factor_multiplier.toFixed(2)}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm font-medium text-foreground truncate">{s.product_name}</p>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                          {s.hs_code_assigned && <span>HS <strong className="text-foreground">{s.hs_code_assigned}</strong></span>}
-                          {totalCost > 0 && <span>{fmtCurrency(totalCost * s.e_factor_multiplier)}</span>}
-                        </div>
+                  <div key={s.id} className="px-5 py-4 hover:bg-muted/30 transition-colors cursor-pointer flex items-center gap-4" onClick={() => navigate(`/shipments/${s.id}`)}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-mono font-medium text-primary">{s.id.slice(0, 8)}…</span>
+                        <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full border", getStatusBadge(s.status))}>{s.status}</span>
+                        {s.e_factor_multiplier > 1.1 && (
+                          <Badge variant="outline" className="text-[9px] border-warning/30 text-warning">
+                            E×{s.e_factor_multiplier.toFixed(2)}
+                          </Badge>
+                        )}
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-xs text-muted-foreground">Created</p>
-                        <p className="text-xs font-medium text-foreground">{new Date(s.created_at).toLocaleDateString("en-GB")}</p>
+                      <p className="text-sm font-medium text-foreground truncate">{s.product_name}</p>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                        {s.hs_code_assigned && <span>HS <strong className="text-foreground">{s.hs_code_assigned}</strong></span>}
+                        {totalCost > 0 && <span>{fmtCurrency(totalCost * s.e_factor_multiplier)}</span>}
                       </div>
                     </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xs text-muted-foreground">Created</p>
+                      <p className="text-xs font-medium text-foreground">{new Date(s.created_at).toLocaleDateString("en-GB")}</p>
+                    </div>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive shrink-0" onClick={e => e.stopPropagation()}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent onClick={e => e.stopPropagation()}>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete shipment?</AlertDialogTitle>
+                          <AlertDialogDescription>Permanently delete "{s.product_name}"? This cannot be undone.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={(e) => { e.stopPropagation(); handleDeleteShipment(s.id); }} disabled={deletingId === s.id} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            {deletingId === s.id ? "Deleting…" : "Delete"}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 );
               })}
