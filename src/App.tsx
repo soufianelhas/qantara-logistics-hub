@@ -10,6 +10,7 @@ import AuthenticityStudio from "./pages/AuthenticityStudio";
 import DocumentationWorkshop from "./pages/DocumentationWorkshop";
 import ShipmentDetails from "./pages/ShipmentDetails";
 import AllShipments from "./pages/AllShipments";
+import Clients from "./pages/Clients";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 import { AuthGuard } from "./components/AuthGuard";
@@ -31,6 +32,7 @@ const App = () => (
           <Route path="/documentation-workshop" element={<AuthGuard><DocumentationWorkshop /></AuthGuard>} />
           <Route path="/shipments" element={<AuthGuard><AllShipments /></AuthGuard>} />
           <Route path="/shipments/:id" element={<AuthGuard><ShipmentDetails /></AuthGuard>} />
+          <Route path="/clients" element={<AuthGuard><Clients /></AuthGuard>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

@@ -11,6 +11,7 @@ import {
   FolderOpen,
   LogOut,
   Archive,
+  Users,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ const workflowItems = [
 
 const otherItems = [
   { title: "Dashboard",           url: "/",                    icon: LayoutDashboard },
+  { title: "Clients",             url: "/clients",             icon: Users },
   { title: "Authenticity Studio", url: "/authenticity-studio", icon: ShieldCheck },
   { title: "Archive",             url: "/shipments",           icon: Archive },
 ];
