@@ -755,7 +755,7 @@ export default function DocumentationWorkshop() {
       for (const doc of checklist) {
         const currentStatus = statuses[doc.id];
         const newStatus = (currentStatus === "Ready" || currentStatus === "Filed") ? "Filed" : currentStatus;
-        await supabase.from("shipment_documents").upsert({
+        const { error: upsertErr } = await supabase.from("shipment_documents").upsert({
           user_id: user.id,
           shipment_id: shipmentId,
           document_type: doc.id,
@@ -765,6 +765,7 @@ export default function DocumentationWorkshop() {
           generated_at: newStatus === "Filed" ? new Date().toISOString() : null,
           metadata: fullFormMetadata,
         }, { onConflict: "user_id,document_type,shipment_id" });
+        if (upsertErr) throw new Error(`Failed to save ${doc.label}: ${upsertErr.message}`);
         if (newStatus === "Filed") filedCount++;
       }
 
