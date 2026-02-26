@@ -56,7 +56,7 @@ export function WorkflowStepper({ currentStep }: WorkflowStepperProps) {
                 {/* Circle */}
                 <div
                   className={cn(
-                    "w-10 h-10 aspect-square rounded-full border-2 flex items-center justify-center transition-all duration-300 shrink-0",
+                    "w-12 h-12 aspect-square rounded-full border-2 flex items-center justify-center transition-all duration-300 shrink-0",
                     isCompleted
                       ? "border-primary bg-primary text-primary-foreground shadow-sm"
                       : isActive
@@ -65,9 +65,9 @@ export function WorkflowStepper({ currentStep }: WorkflowStepperProps) {
                   )}
                 >
                   {isCompleted ? (
-                    <CheckCircle2 className="w-4 h-4 leading-none" />
+                    <CheckCircle2 className="w-5 h-5 leading-none" />
                   ) : (
-                    <Icon className="w-4 h-4 leading-none" />
+                    <Icon className="w-5 h-5 leading-none" />
                   )}
                 </div>
 
