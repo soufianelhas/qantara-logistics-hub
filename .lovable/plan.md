@@ -1,20 +1,26 @@
 
-1) Update `src/components/WorkflowStepper.tsx` only (no layout-wide resizing):
-- Keep the step circle and icon sizes as-is (do not scale the whole stepper).
-- Target only the active-state highlight element.
 
-2) Rebuild active highlight so it intentionally wraps both the indicator ring and the two text lines:
-- Replace current active overlay (`absolute ... rounded-full`) with a larger pill/oval overlay sized by axis-specific insets (separate X/Y).
-- Keep `pointer-events-none` and place highlight behind content using z-index layering.
+# Fix: Upsert Conflict Constraint Mismatch
 
-3) Prevent clipping/misalignment:
-- Wrap icon + labels in a content container with stable vertical spacing.
-- Ensure highlight uses enough vertical inset to fully contain label text and enough horizontal inset so it does not look tight around “Classify”.
+## Problem
 
-4) Keep visual style consistent:
-- Preserve current border/blur/theme palette.
-- Keep pulse animation subtle, but ensure the oval boundary is clearly larger than the ring+text block.
+The database has **partial** unique indexes (with `WHERE shipment_id IS NOT NULL`), but the Supabase JS client's `onConflict` parameter only generates `ON CONFLICT (col1, col2, col3)` without a `WHERE` clause. PostgreSQL cannot match this to a partial index, causing the error.
 
-5) Validation pass on all workflow pages:
-- Check `HSNeuralNavigator`, `LandedCostEngine`, and `DocumentationWorkshop` step states.
-- Confirm only the active-step oval changed, while the rest of the stepper size remains unchanged.
+## Solution
+
+A single database migration that:
+
+1. Drops the two redundant partial indexes: `idx_shipment_documents_upsert` and `idx_shipment_documents_unique`
+2. Creates a standard (non-partial) unique constraint on `(user_id, document_type, shipment_id)`
+
+PostgreSQL treats NULLs as distinct in unique indexes, so rows where `shipment_id IS NULL` will not conflict with each other -- no behavioral change for edge cases.
+
+No frontend code changes needed. The existing `onConflict: "user_id,document_type,shipment_id"` will match the new non-partial constraint.
+
+```sql
+DROP INDEX IF EXISTS idx_shipment_documents_upsert;
+DROP INDEX IF EXISTS idx_shipment_documents_unique;
+CREATE UNIQUE INDEX idx_shipment_documents_upsert 
+  ON public.shipment_documents (user_id, document_type, shipment_id);
+```
+

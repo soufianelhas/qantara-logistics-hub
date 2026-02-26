@@ -95,9 +95,9 @@ export function WorkflowStepper({ currentStep }: WorkflowStepperProps) {
                   </p>
                 </div>
 
-                {/* Active pulse */}
+                {/* Active highlight oval */}
                 {isActive && (
-                  <div className="absolute -inset-2 rounded-full border border-primary/20 animate-pulse pointer-events-none" />
+                  <div className="absolute -inset-x-4 -inset-y-2 rounded-2xl border-2 border-primary/25 animate-pulse pointer-events-none" />
                 )}
               </div>
             );
