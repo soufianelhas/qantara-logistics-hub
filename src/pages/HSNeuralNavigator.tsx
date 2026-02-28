@@ -4,6 +4,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { WorkflowStepper } from "@/components/WorkflowStepper";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { CompassSheet } from "@/components/CompassSheet";
 import { Badge } from "@/components/ui/badge";
 import {
   Brain,
@@ -17,6 +18,7 @@ import {
   Star,
   RotateCcw,
   RefreshCw,
+  Compass,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CATEGORIES } from "@/data/taric-database";
@@ -42,9 +44,9 @@ interface AIResult {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const E_RISK_BADGE = {
-  low:    { label: "Low Risk",    cls: "bg-risk-low/15 text-risk-low border-risk-low/30" },
+  low: { label: "Low Risk", cls: "bg-risk-low/15 text-risk-low border-risk-low/30" },
   medium: { label: "Medium Risk", cls: "bg-risk-medium/15 text-risk-medium border-risk-medium/30" },
-  high:   { label: "High Risk",   cls: "bg-risk-high/15 text-risk-high border-risk-high/30" },
+  high: { label: "High Risk", cls: "bg-risk-high/15 text-risk-high border-risk-high/30" },
 };
 
 function ConfidenceBar({ value }: { value: number }) {
@@ -87,10 +89,10 @@ export default function HSNeuralNavigator() {
   const [isCreatingShipment, setIsCreatingShipment] = useState(false);
 
   // Save form state to localStorage
-  useEffect(() => { try { localStorage.setItem("qantara_hs_stage", stage); } catch {} }, [stage]);
-  useEffect(() => { try { localStorage.setItem("qantara_hs_category", selectedCategory); } catch {} }, [selectedCategory]);
-  useEffect(() => { try { localStorage.setItem("qantara_hs_subcategory", selectedSubcategory); } catch {} }, [selectedSubcategory]);
-  useEffect(() => { try { localStorage.setItem("qantara_hs_description", productDescription); } catch {} }, [productDescription]);
+  useEffect(() => { try { localStorage.setItem("qantara_hs_stage", stage); } catch { } }, [stage]);
+  useEffect(() => { try { localStorage.setItem("qantara_hs_category", selectedCategory); } catch { } }, [selectedCategory]);
+  useEffect(() => { try { localStorage.setItem("qantara_hs_subcategory", selectedSubcategory); } catch { } }, [selectedSubcategory]);
+  useEffect(() => { try { localStorage.setItem("qantara_hs_description", productDescription); } catch { } }, [productDescription]);
 
   const currentCategory = CATEGORIES.find((c) => c.id === selectedCategory);
 
@@ -232,7 +234,7 @@ export default function HSNeuralNavigator() {
       localStorage.removeItem("qantara_hs_category");
       localStorage.removeItem("qantara_hs_subcategory");
       localStorage.removeItem("qantara_hs_description");
-    } catch {}
+    } catch { }
   };
 
   // ── Stage: Category ─────────────────────────────────────────────────────
@@ -437,10 +439,18 @@ export default function HSNeuralNavigator() {
             <span className="text-border">·</span>
             <span>Tax rate <strong className="text-foreground">{selectedResult.tax}%</strong> will be auto-filled</span>
           </div>
-          <Button onClick={handleExportToLCE} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" size="lg">
-            Apply Code & Calculate Costs <ArrowRight className="w-4 h-4" />
-          </Button>
-          <p className="text-[11px] text-muted-foreground text-center">You'll be taken to the Landed Cost Engine with D and T pre-populated</p>
+          <div className="flex flex-col sm:flex-row items-center gap-3 mt-4">
+            <Button onClick={handleExportToLCE} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" size="lg">
+              Proceed to Calculate Costs <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+            <CompassSheet>
+              <Button variant="outline" className="w-full border-primary/20 hover:bg-primary/5 text-primary" size="lg">
+                <Compass className="w-4 h-4 mr-2" />
+                Get Market Intelligence
+              </Button>
+            </CompassSheet>
+          </div>
+          <p className="text-[11px] text-muted-foreground text-center">Consult Market Intelligence first, or proceed directly to logistics cost calculations.</p>
         </div>
       )}
 
@@ -460,10 +470,10 @@ export default function HSNeuralNavigator() {
     <AppLayout title="HS Neural-Navigator" subtitle="AI Interrogator — TARIC / RITA classification engine">
       <div className="max-w-3xl mx-auto">
         <WorkflowStepper currentStep={1} />
-        {stage === "category"    && renderCategory()}
+        {stage === "category" && renderCategory()}
         {stage === "subcategory" && renderSubcategory()}
-        {stage === "details"     && renderDetails()}
-        {stage === "results"     && renderResults()}
+        {stage === "details" && renderDetails()}
+        {stage === "results" && renderResults()}
       </div>
     </AppLayout>
   );

@@ -12,22 +12,24 @@ import {
   LogOut,
   Archive,
   Users,
+  Compass,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 
 const workflowItems = [
-  { title: "HS Neural-Navigator",     url: "/hs-navigator",            icon: Brain,       step: 1 },
-  { title: "Landed Cost Engine",      url: "/landed-cost",             icon: Calculator,  step: 2 },
-  { title: "Documentation Workshop",  url: "/documentation-workshop",  icon: FolderOpen,  step: 3 },
+  { title: "HS Neural-Navigator", url: "/hs-navigator", icon: Brain, step: 1 },
+  { title: "Landed Cost Engine", url: "/landed-cost", icon: Calculator, step: 2 },
+  { title: "Documentation Workshop", url: "/documentation-workshop", icon: FolderOpen, step: 3 },
 ];
 
 const otherItems = [
-  { title: "Dashboard",           url: "/",                    icon: LayoutDashboard },
-  { title: "Clients",             url: "/clients",             icon: Users },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "The Compass", url: "/compass", icon: Compass },
+  { title: "Clients", url: "/clients", icon: Users },
   { title: "Authenticity Studio", url: "/authenticity-studio", icon: ShieldCheck },
-  { title: "Archive",             url: "/shipments",           icon: Archive },
+  { title: "Archive", url: "/shipments", icon: Archive },
 ];
 
 export function AppSidebar() {

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Compass as CompassIcon } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -32,20 +33,20 @@ const E_CRITICAL = 1.2;
 
 function getNextStep(status: ShipmentStatus): { label: string; route: string; icon: React.ElementType } | null {
   switch (status) {
-    case "Draft":      return { label: "Calculate Costs",    route: "/landed-cost",            icon: Calculator };
-    case "Calculated": return { label: "Generate Documents", route: "/documentation-workshop",  icon: FileText };
-    case "Filed":      return { label: "View Documents",     route: "/documentation-workshop",  icon: FileText };
-    default:           return null;
+    case "Draft": return { label: "Calculate Costs", route: "/landed-cost", icon: Calculator };
+    case "Calculated": return { label: "Generate Documents", route: "/documentation-workshop", icon: FileText };
+    case "Filed": return { label: "View Documents", route: "/documentation-workshop", icon: FileText };
+    default: return null;
   }
 }
 
 function getStatusBadge(status: ShipmentStatus) {
   const map: Record<ShipmentStatus, string> = {
-    Draft:          "text-muted-foreground bg-muted border-border",
-    Calculated:     "text-warning bg-warning/10 border-warning/20",
-    Filed:          "text-success bg-success/10 border-success/20",
+    Draft: "text-muted-foreground bg-muted border-border",
+    Calculated: "text-warning bg-warning/10 border-warning/20",
+    Filed: "text-success bg-success/10 border-success/20",
     "Port-Transit": "text-primary bg-primary/10 border-primary/20",
-    Delivered:      "text-success bg-success/10 border-success/20",
+    Delivered: "text-success bg-success/10 border-success/20",
   };
   return map[status] ?? "text-muted-foreground bg-muted border-border";
 }

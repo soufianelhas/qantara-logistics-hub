@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { CheckCircle2, Circle, Brain, Calculator, FileCheck } from "lucide-react";
 
-export type WorkflowStep = 1 | 2 | 3;
+export type WorkflowStep = 1 | 2 | 3 | 4;
 
 interface StepDef {
   number: WorkflowStep;
@@ -11,9 +11,10 @@ interface StepDef {
 }
 
 const STEPS: StepDef[] = [
-  { number: 1, label: "Classify", sublabel: "HS Code",        icon: Brain },
-  { number: 2, label: "Calculate", sublabel: "Landed Cost",   icon: Calculator },
-  { number: 3, label: "Finalize",  sublabel: "Save & File",   icon: FileCheck },
+  { number: 1, label: "Classify", sublabel: "HS Code", icon: Brain },
+  { number: 2, label: "Discover", sublabel: "The Compass", icon: Calculator },
+  { number: 3, label: "Calculate", sublabel: "Landed Cost", icon: Calculator },
+  { number: 4, label: "Finalize", sublabel: "Save & File", icon: FileCheck },
 ];
 
 interface WorkflowStepperProps {
@@ -35,8 +36,8 @@ export function WorkflowStepper({ currentStep }: WorkflowStepperProps) {
                   currentStep > i + 1
                     ? "bg-primary"
                     : currentStep === i + 1
-                    ? "bg-gradient-to-r from-primary to-border"
-                    : "bg-border"
+                      ? "bg-gradient-to-r from-primary to-border"
+                      : "bg-border"
                 )}
               />
             ))}
@@ -60,8 +61,8 @@ export function WorkflowStepper({ currentStep }: WorkflowStepperProps) {
                     isCompleted
                       ? "border-primary bg-primary text-primary-foreground shadow-sm"
                       : isActive
-                      ? "border-primary bg-primary/10 text-primary shadow-sm"
-                      : "border-border bg-background text-muted-foreground"
+                        ? "border-primary bg-primary/10 text-primary shadow-sm"
+                        : "border-border bg-background text-muted-foreground"
                   )}
                 >
                   {isCompleted ? (
@@ -87,8 +88,8 @@ export function WorkflowStepper({ currentStep }: WorkflowStepperProps) {
                       isActive
                         ? "text-primary"
                         : isCompleted
-                        ? "text-muted-foreground"
-                        : "text-muted-foreground/50"
+                          ? "text-muted-foreground"
+                          : "text-muted-foreground/50"
                     )}
                   >
                     {step.sublabel}

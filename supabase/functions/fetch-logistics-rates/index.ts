@@ -55,21 +55,21 @@ serve(async (req) => {
     const destination = destination_city || "Paris";
     const routes = getSimulatedRoutes(weight);
 
-    // Generate strategic advice via Lovable AI Gateway with search grounding context
+    // Generate strategic advice via direct Gemini API
     let strategic_advice = "";
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
-    if (LOVABLE_API_KEY) {
+    if (GEMINI_API_KEY) {
       const riskContext = eFactor > 1.2
         ? "CRITICAL: Maritime E-Factor is above 1.2, indicating severe weather risk at Moroccan ports (high winds >25 knots, potential port shutdowns). Sea routes are HIGH RISK. Strongly recommend Air or Road alternatives."
         : eFactor > 1.1
-        ? "MODERATE: Maritime E-Factor is elevated above 1.1. Some weather disruption possible. Consider reliability tradeoffs."
-        : "LOW RISK: Weather conditions are favorable across all modes.";
+          ? "MODERATE: Maritime E-Factor is elevated above 1.1. Some weather disruption possible. Consider reliability tradeoffs."
+          : "LOW RISK: Weather conditions are favorable across all modes.";
 
       // Determine likely transit hubs based on geography
       const originLower = origin.toLowerCase();
       const destLower = destination.toLowerCase();
-      
+
       let transitHub = "Casablanca Port";
       if (originLower.includes("fes") || originLower.includes("fez") || originLower.includes("tanger") || originLower.includes("tetouan") || originLower.includes("nador") || originLower.includes("oujda")) {
         transitHub = "Tanger Med";
@@ -80,7 +80,7 @@ serve(async (req) => {
       } else if (originLower.includes("marrakech") || originLower.includes("beni mellal") || originLower.includes("safi")) {
         transitHub = "Casablanca Port";
       }
-      
+
       // For European destinations, Tanger Med is often optimal
       const isEurope = ["paris", "london", "berlin", "madrid", "rome", "amsterdam", "brussels", "barcelona", "marseille", "hamburg", "frankfurt", "milan", "lyon", "munich", "vienna", "zurich", "lisbon", "porto"].some(c => destLower.includes(c));
       if (isEurope && !originLower.includes("agadir")) {
@@ -111,23 +111,23 @@ INSTRUCTIONS:
 Respond with ONLY the recommendation text. Be specific about the route, numbers, and transit hub.`;
 
       try {
-        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const aiResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [{ role: "user", content: prompt }],
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
           }),
         });
 
         if (aiResp.ok) {
           const aiData = await aiResp.json();
-          strategic_advice = aiData.choices?.[0]?.message?.content || "";
+          strategic_advice = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
         } else {
-          console.error("AI gateway error:", aiResp.status);
+          console.error("Gemini API error:", aiResp.status);
+          const errText = await aiResp.text();
+          console.error(errText);
         }
       } catch (aiErr) {
         console.error("AI call failed:", aiErr);

@@ -18,13 +18,14 @@ import {
   CloudLightning, Ship, CheckCircle2, Lock, Brain, FileText,
   ArrowLeft, ArrowRight, Thermometer, Eye, Database, Truck,
   Plane, TrainFront, Leaf, Sparkles, Search, MapPin, Package,
-  ChevronDown, Info, Plus, Building, Receipt,
+  ChevronDown, Info, Plus, Building, Receipt, Compass,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useShipmentRecovery } from "@/hooks/use-shipment-recovery";
 import { AddClientModal } from "@/components/AddClientModal";
+import { CompassSheet } from "@/components/CompassSheet";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,17 +68,17 @@ const INCOTERMS: { value: string; label: string; description: string }[] = [
 // ── Styling maps ──────────────────────────────────────────────────────────────
 
 const PORT_CONGESTION = {
-  low:      { label: "Low",      color: "text-risk-low",    bg: "bg-risk-low/10",    contrib: 0.00 },
-  medium:   { label: "Medium",   color: "text-risk-medium", bg: "bg-risk-medium/10", contrib: 0.05 },
-  high:     { label: "High",     color: "text-risk-high",   bg: "bg-risk-high/10",   contrib: 0.12 },
-  critical: { label: "Critical", color: "text-risk-high",   bg: "bg-risk-high/10",   contrib: 0.22 },
+  low: { label: "Low", color: "text-risk-low", bg: "bg-risk-low/10", contrib: 0.00 },
+  medium: { label: "Medium", color: "text-risk-medium", bg: "bg-risk-medium/10", contrib: 0.05 },
+  high: { label: "High", color: "text-risk-high", bg: "bg-risk-high/10", contrib: 0.12 },
+  critical: { label: "Critical", color: "text-risk-high", bg: "bg-risk-high/10", contrib: 0.22 },
 };
 
 const STORM_RISK = {
-  none:     { label: "None",     color: "text-risk-low",    bg: "bg-risk-low/10" },
-  low:      { label: "Low",      color: "text-risk-low",    bg: "bg-risk-low/10" },
+  none: { label: "None", color: "text-risk-low", bg: "bg-risk-low/10" },
+  low: { label: "Low", color: "text-risk-low", bg: "bg-risk-low/10" },
   moderate: { label: "Moderate", color: "text-risk-medium", bg: "bg-risk-medium/10" },
-  severe:   { label: "Severe",   color: "text-risk-high",   bg: "bg-risk-high/10" },
+  severe: { label: "Severe", color: "text-risk-high", bg: "bg-risk-high/10" },
 };
 
 const E_FACTOR_RISK_THRESHOLD = 1.15;
@@ -95,12 +96,14 @@ export default function LandedCostEngine() {
   const calculatorRef = useRef<HTMLDivElement>(null);
 
   const fromClassifier = searchParams.get("from") === "classifier";
-  const paramHsCode     = searchParams.get("hs_code") || "";
-  const paramDuty       = parseFloat(searchParams.get("duty") || "0");
-  const paramTax        = parseFloat(searchParams.get("tax") || "0");
-  const paramProduct    = searchParams.get("product_name") || "";
+  const paramHsCode = searchParams.get("hs_code") || "";
+  const paramDuty = parseFloat(searchParams.get("duty") || "0");
+  const paramTax = parseFloat(searchParams.get("tax") || "0");
+  const paramProduct = searchParams.get("product_name") || "";
   const paramConfidence = searchParams.get("confidence") || "";
   const paramShipmentId = searchParams.get("shipment_id") || null;
+  const paramDestinationCountry = searchParams.get("destination_country") || "";
+  const fromCompass = searchParams.get("from") === "compass";
 
   const { shipmentId: recoveredId, shipment: recoveredShipment, loading: recoveryLoading, recovered, setShipmentId: setRecoveredId } = useShipmentRecovery(paramShipmentId, ["Draft", "Calculated"]);
   const [activeShipmentId, setActiveShipmentId] = useState<string | null>(paramShipmentId);
@@ -110,18 +113,18 @@ export default function LandedCostEngine() {
   }, [recoveredId]);
 
   // User-editable fields
-  const [productName,  setProductName]  = useState(() => paramProduct || localStorage.getItem("qantara_lce_productName") || "");
-  const [hsCode,       setHsCode]       = useState(() => paramHsCode || localStorage.getItem("qantara_lce_hsCode") || "");
+  const [productName, setProductName] = useState(() => paramProduct || localStorage.getItem("qantara_lce_productName") || "");
+  const [hsCode, setHsCode] = useState(() => paramHsCode || localStorage.getItem("qantara_lce_hsCode") || "");
   const [productValue, setProductValue] = useState(() => localStorage.getItem("qantara_lce_productValue") || "");
-  const [freight,      setFreight]      = useState(() => localStorage.getItem("qantara_lce_freight") || "");
-  const [insurance,    setInsurance]    = useState(() => localStorage.getItem("qantara_lce_insurance") || "");
-  const [duty,         setDuty]         = useState(fromClassifier ? String(paramDuty) : () => localStorage.getItem("qantara_lce_duty") || "");
-  const [taxes,        setTaxes]        = useState(fromClassifier ? String(paramTax)  : () => localStorage.getItem("qantara_lce_taxes") || "");
+  const [freight, setFreight] = useState(() => localStorage.getItem("qantara_lce_freight") || "");
+  const [insurance, setInsurance] = useState(() => localStorage.getItem("qantara_lce_insurance") || "");
+  const [duty, setDuty] = useState(fromClassifier ? String(paramDuty) : () => localStorage.getItem("qantara_lce_duty") || "");
+  const [taxes, setTaxes] = useState(fromClassifier ? String(paramTax) : () => localStorage.getItem("qantara_lce_taxes") || "");
 
-  const [eFactor,        setEFactor]        = useState<EFactorData | null>(null);
+  const [eFactor, setEFactor] = useState<EFactorData | null>(null);
   const [eFactorLoading, setEFactorLoading] = useState(false);
-  const [result,         setResult]         = useState<CalculationResult | null>(null);
-  const [finalizing,     setFinalizing]     = useState(false);
+  const [result, setResult] = useState<CalculationResult | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
 
   // Shipment specs
   const [originCity, setOriginCity] = useState(() => localStorage.getItem("qantara_lce_originCity") || "");
@@ -148,21 +151,21 @@ export default function LandedCostEngine() {
   const [showQuote, setShowQuote] = useState(false);
 
   // Persist new fields
-  useEffect(() => { try { localStorage.setItem("qantara_lce_clientId", clientId || ""); } catch {} }, [clientId]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_incoterm", incoterm); } catch {} }, [incoterm]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_agencyFee", agencyFee); } catch {} }, [agencyFee]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_clientId", clientId || ""); } catch { } }, [clientId]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_incoterm", incoterm); } catch { } }, [incoterm]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_agencyFee", agencyFee); } catch { } }, [agencyFee]);
 
   // Persist existing fields
-  useEffect(() => { try { localStorage.setItem("qantara_lce_productName", productName); } catch {} }, [productName]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_hsCode", hsCode); } catch {} }, [hsCode]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_productValue", productValue); } catch {} }, [productValue]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_freight", freight); } catch {} }, [freight]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_insurance", insurance); } catch {} }, [insurance]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_duty", duty); } catch {} }, [duty]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_taxes", taxes); } catch {} }, [taxes]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_originCity", originCity); } catch {} }, [originCity]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_destinationCity", destinationCity); } catch {} }, [destinationCity]);
-  useEffect(() => { try { localStorage.setItem("qantara_lce_totalWeightKg", totalWeightKg); } catch {} }, [totalWeightKg]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_productName", productName); } catch { } }, [productName]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_hsCode", hsCode); } catch { } }, [hsCode]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_productValue", productValue); } catch { } }, [productValue]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_freight", freight); } catch { } }, [freight]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_insurance", insurance); } catch { } }, [insurance]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_duty", duty); } catch { } }, [duty]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_taxes", taxes); } catch { } }, [taxes]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_originCity", originCity); } catch { } }, [originCity]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_destinationCity", destinationCity); } catch { } }, [destinationCity]);
+  useEffect(() => { try { localStorage.setItem("qantara_lce_totalWeightKg", totalWeightKg); } catch { } }, [totalWeightKg]);
 
   // Fetch clients
   useEffect(() => {
@@ -184,7 +187,11 @@ export default function LandedCostEngine() {
       if (recoveredShipment.incoterm) setIncoterm(recoveredShipment.incoterm);
       if (recoveredShipment.agency_fee) setAgencyFee(String(recoveredShipment.agency_fee));
       if (recoveredShipment.origin_city) setOriginCity(recoveredShipment.origin_city);
-      if (recoveredShipment.destination_city) setDestinationCity(recoveredShipment.destination_city);
+      if (recoveredShipment.destination_country && !recoveredShipment.destination_city) {
+        setDestinationCity(recoveredShipment.destination_country);
+      } else if (recoveredShipment.destination_city) {
+        setDestinationCity(recoveredShipment.destination_city);
+      }
       if (recoveredShipment.total_weight_kg) setTotalWeightKg(String(recoveredShipment.total_weight_kg));
       toast({ title: "Shipment recovered", description: `Resumed: ${recoveredShipment.product_name || "Unnamed"}` });
     }
@@ -197,6 +204,15 @@ export default function LandedCostEngine() {
     setDuty(String(paramDuty));
     setTaxes(String(paramTax));
   }, [paramHsCode]);
+
+  useEffect(() => {
+    if (!fromCompass) return;
+    setProductName(paramProduct);
+    setHsCode(paramHsCode);
+    if (paramDuty) setDuty(String(paramDuty));
+    if (paramTax) setTaxes(String(paramTax));
+    if (paramDestinationCountry) setDestinationCity(paramDestinationCountry); // Auto-fill destination
+  }, [fromCompass]);
 
   // ── E-Factor ──────────────────────────────────────────────────────────────
 
@@ -217,18 +233,18 @@ export default function LandedCostEngine() {
 
   const handleCalculate = () => {
     const v = parseFloat(productValue) || 0;
-    const f = parseFloat(freight)       || 0;
-    const i = parseFloat(insurance)     || 0;
-    const d = parseFloat(duty)          || 0;
-    const t = parseFloat(taxes)         || 0;
-    const af = parseFloat(agencyFee)    || 0;
+    const f = parseFloat(freight) || 0;
+    const i = parseFloat(insurance) || 0;
+    const d = parseFloat(duty) || 0;
+    const t = parseFloat(taxes) || 0;
+    const af = parseFloat(agencyFee) || 0;
 
     const dAbsolute = fromClassifier ? (v * d) / 100 : d;
     const tAbsolute = fromClassifier ? (v * t) / 100 : t;
     const e = eFactor?.multiplier ?? 1.0;
 
     const optimistic = v + f + i + dAbsolute + tAbsolute;
-    const realistic  = (optimistic * e) + af;
+    const realistic = (optimistic * e) + af;
     setResult({ v, f, i, d: dAbsolute, t: tAbsolute, eFactor: e, agencyFee: af, optimistic, realistic, difference: realistic - optimistic });
     localStorage.setItem("qantara_efactor", String(e));
   };
@@ -312,7 +328,7 @@ export default function LandedCostEngine() {
   };
 
   const congestionInfo = eFactor ? PORT_CONGESTION[eFactor.portCongestion] : null;
-  const stormInfo      = eFactor ? STORM_RISK[eFactor.stormRisk]           : null;
+  const stormInfo = eFactor ? STORM_RISK[eFactor.stormRisk] : null;
   const selectedClientName = clients.find(c => c.id === clientId)?.name || null;
 
   return (
@@ -899,6 +915,16 @@ export default function LandedCostEngine() {
 
       <AddClientModal open={addClientOpen} onOpenChange={setAddClientOpen}
         onClientAdded={(c) => { setClients(prev => [...prev, c]); setClientId(c.id); }} />
+
+      {/* Floating Action Button for Compass */}
+      <div className="fixed bottom-6 right-6 z-50 animate-fade-in group">
+        <CompassSheet>
+          <Button className="h-14 w-14 rounded-full shadow-elevated bg-primary text-primary-foreground hover:bg-primary/90 flex flex-col items-center justify-center p-0 gap-0 transition-transform hover:scale-105">
+            <Compass className="w-5 h-5 mb-0.5" />
+            <span className="text-[7px] font-bold uppercase tracking-wider">Compass</span>
+          </Button>
+        </CompassSheet>
+      </div>
     </AppLayout>
   );
 }

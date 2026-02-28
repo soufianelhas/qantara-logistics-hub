@@ -71,6 +71,47 @@ export type Database = {
         }
         Relationships: []
       }
+      market_intelligence: {
+        Row: {
+          benchmarking: Json | null
+          created_at: string
+          id: string
+          opportunity_data: Json | null
+          shipment_id: string
+          strategic_advice: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          benchmarking?: Json | null
+          created_at?: string
+          id?: string
+          opportunity_data?: Json | null
+          shipment_id: string
+          strategic_advice?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          benchmarking?: Json | null
+          created_at?: string
+          id?: string
+          opportunity_data?: Json | null
+          shipment_id?: string
+          strategic_advice?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_intelligence_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: true
+            referencedRelation: "shipments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shipment_documents: {
         Row: {
           created_at: string
@@ -130,6 +171,7 @@ export type Database = {
           client_id: string | null
           created_at: string
           destination_city: string | null
+          destination_country: string | null
           duty: number
           e_factor_multiplier: number
           freight: number
@@ -154,6 +196,7 @@ export type Database = {
           client_id?: string | null
           created_at?: string
           destination_city?: string | null
+          destination_country?: string | null
           duty?: number
           e_factor_multiplier?: number
           freight?: number
@@ -178,6 +221,7 @@ export type Database = {
           client_id?: string | null
           created_at?: string
           destination_city?: string | null
+          destination_country?: string | null
           duty?: number
           e_factor_multiplier?: number
           freight?: number

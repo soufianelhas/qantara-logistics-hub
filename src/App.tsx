@@ -13,6 +13,7 @@ import AllShipments from "./pages/AllShipments";
 import Clients from "./pages/Clients";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import MarketIntelligence from "./pages/MarketIntelligence";
 import { AuthGuard } from "./components/AuthGuard";
 
 const queryClient = new QueryClient();
@@ -31,7 +32,9 @@ const App = () => (
           <Route path="/authenticity-studio" element={<AuthGuard><AuthenticityStudio /></AuthGuard>} />
           <Route path="/documentation-workshop" element={<AuthGuard><DocumentationWorkshop /></AuthGuard>} />
           <Route path="/shipments" element={<AuthGuard><AllShipments /></AuthGuard>} />
+          <Route path="/compass" element={<AuthGuard><MarketIntelligence /></AuthGuard>} />
           <Route path="/shipments/:id" element={<AuthGuard><ShipmentDetails /></AuthGuard>} />
+          <Route path="/shipments/:id/compass" element={<AuthGuard><MarketIntelligence /></AuthGuard>} />
           <Route path="/clients" element={<AuthGuard><Clients /></AuthGuard>} />
           <Route path="*" element={<NotFound />} />
         </Routes>

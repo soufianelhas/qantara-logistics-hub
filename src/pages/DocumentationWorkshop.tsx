@@ -98,9 +98,9 @@ function StatusBadge({ status }: { status: DocStatus }) {
   return (
     <span className={cn("inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border", meta.color, meta.bg, meta.border)}>
       {status === "Missing" && <AlertCircle className="w-2.5 h-2.5" />}
-      {status === "Draft"   && <Edit3 className="w-2.5 h-2.5" />}
-      {status === "Ready"   && <CheckCircle2 className="w-2.5 h-2.5" />}
-      {status === "Filed"   && <Send className="w-2.5 h-2.5" />}
+      {status === "Draft" && <Edit3 className="w-2.5 h-2.5" />}
+      {status === "Ready" && <CheckCircle2 className="w-2.5 h-2.5" />}
+      {status === "Filed" && <Send className="w-2.5 h-2.5" />}
       {meta.label}
     </span>
   );
@@ -492,38 +492,38 @@ export default function DocumentationWorkshop() {
   const { toast } = useToast();
 
   // URL params from LCE
-  const paramHsCode      = searchParams.get("hs_code") || "";
+  const paramHsCode = searchParams.get("hs_code") || "";
   const paramProductName = searchParams.get("product_name") || "";
   const paramProductValue = parseFloat(searchParams.get("product_value") || "0");
-  const paramFreight     = parseFloat(searchParams.get("freight") || "0");
-  const urlShipmentId    = searchParams.get("shipment_id") || null;
-  const paramDocType     = searchParams.get("doc_type") || null;
-  const fromLCE          = searchParams.get("from") === "lce";
+  const paramFreight = parseFloat(searchParams.get("freight") || "0");
+  const urlShipmentId = searchParams.get("shipment_id") || null;
+  const paramDocType = searchParams.get("doc_type") || null;
+  const fromLCE = searchParams.get("from") === "lce";
 
   // ── Smart shipment recovery — accept Draft or Calculated ────────────────
   const { shipmentId, shipment: recoveredShipment, loading: recoveryLoading, recovered } = useShipmentRecovery(urlShipmentId, ["Draft", "Calculated"]);
 
   // Resolved data — may come from DB or URL params
-  const [hsCode,       setHsCode]       = useState(paramHsCode);
-  const [productName,  setProductName]  = useState(paramProductName);
+  const [hsCode, setHsCode] = useState(paramHsCode);
+  const [productName, setProductName] = useState(paramProductName);
   const [productValue, setProductValue] = useState(paramProductValue);
-  const [freight,      setFreight]      = useState(paramFreight);
+  const [freight, setFreight] = useState(paramFreight);
   const [loadedFromDB, setLoadedFromDB] = useState(false);
-  const [dbLoading,    setDbLoading]    = useState(false);
+  const [dbLoading, setDbLoading] = useState(false);
 
   const [targetMarket, setTargetMarket] = useState("EU");
-  const [checklist, setChecklist]       = useState<RequiredDocument[]>([]);
+  const [checklist, setChecklist] = useState<RequiredDocument[]>([]);
   const [manualStatuses, setManualStatuses] = useState<Record<string, DocStatus>>({});
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [activeTab, setActiveTab]       = useState<"form" | "preview">("form");
+  const [activeTab, setActiveTab] = useState<"form" | "preview">("form");
 
   // Form state — persisted to localStorage
-  const [exporter, setExporter]   = usePersistedState<ExporterDetails>("qantara_exporter", DEFAULT_EXPORTER);
+  const [exporter, setExporter] = usePersistedState<ExporterDetails>("qantara_exporter", DEFAULT_EXPORTER);
   const [consignee, setConsignee] = usePersistedState<ConsigneeDetails>("qantara_consignee", DEFAULT_CONSIGNEE);
-  const [quantity,  setQuantity]  = useState(1);
+  const [quantity, setQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState(paramProductValue);
-  const [currency,  setCurrency]  = useState("USD");
-  const [incoterm,  setIncoterm]  = useState("FOB");
+  const [currency, setCurrency] = useState("USD");
+  const [incoterm, setIncoterm] = useState("FOB");
   const [invoiceNo, setInvoiceNo] = useState(`INV-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`);
   const [invoiceDate, setInvoiceDate] = useState(new Date().toLocaleDateString("en-GB"));
   const [savingDocId, setSavingDocId] = useState<string | null>(null);
@@ -565,9 +565,9 @@ export default function DocumentationWorkshop() {
         if (error || !data) return;
 
         if (data.hs_code_assigned) setHsCode(data.hs_code_assigned);
-        if (data.product_name)     setProductName(data.product_name);
-        if (data.raw_cost_v > 0)   { setProductValue(data.raw_cost_v); setUnitPrice(data.raw_cost_v); }
-        if (data.freight > 0)      setFreight(data.freight);
+        if (data.product_name) setProductName(data.product_name);
+        if (data.raw_cost_v > 0) { setProductValue(data.raw_cost_v); setUnitPrice(data.raw_cost_v); }
+        if (data.freight > 0) setFreight(data.freight);
         setLoadedFromDB(true);
       } catch (err) {
         console.warn("Could not fetch shipment:", err);
@@ -1053,10 +1053,10 @@ export default function DocumentationWorkshop() {
               </h2>
 
               {checklist.map((doc) => {
-                const status  = statuses[doc.id] ?? "Missing";
-                const meta    = DOC_STATUS_META[status];
+                const status = statuses[doc.id] ?? "Missing";
+                const meta = DOC_STATUS_META[status];
                 const isSelected = selectedDocId === doc.id;
-                const isSaving  = savingDocId === doc.id;
+                const isSaving = savingDocId === doc.id;
 
                 return (
                   <button
